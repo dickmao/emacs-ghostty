@@ -1,0 +1,44 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-Dghostty_vt_module_EXPORTS",
+      "-I/home/dick/emacs-ghostty/vendor/ghostty/include",
+      "-O2",
+      "-g",
+      "-DNDEBUG",
+      "-std=gnu99",
+      "-fPIC",
+      "-fvisibility=hidden",
+      "-Werror",
+      "-c",
+      "-o",
+      "CMakeFiles/ghostty-vt-module.dir/ghostty-vt-module.c.o",
+      "/home/dick/emacs-ghostty/ghostty-vt-module.c"
+    ],
+    "directory": "/home/dick/emacs-ghostty/build",
+    "file": "/home/dick/emacs-ghostty/ghostty-vt-module.c",
+    "output": "/home/dick/emacs-ghostty/build/CMakeFiles/ghostty-vt-module.dir/ghostty-vt-module.c.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-Dghostty_vt_module_EXPORTS",
+      "-I/home/dick/emacs-ghostty/vendor/ghostty/include",
+      "-O2",
+      "-g",
+      "-DNDEBUG",
+      "-std=gnu99",
+      "-fPIC",
+      "-fvisibility=hidden",
+      "-Werror",
+      "-c",
+      "-o",
+      "CMakeFiles/ghostty-vt-module.dir/elisp.c.o",
+      "/home/dick/emacs-ghostty/elisp.c"
+    ],
+    "directory": "/home/dick/emacs-ghostty/build",
+    "file": "/home/dick/emacs-ghostty/elisp.c",
+    "output": "/home/dick/emacs-ghostty/build/CMakeFiles/ghostty-vt-module.dir/elisp.c.o"
+  }
+]

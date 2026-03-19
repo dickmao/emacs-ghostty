@@ -15,4 +15,4 @@ ghostty-vt-module.so: $(CSRC) CMakeLists.txt
 
 .PHONY: clean
 clean:
-	rm -rf build ghostty-vt-module.so
+	git clean -dfX
