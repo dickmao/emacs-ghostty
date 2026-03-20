@@ -2,43 +2,69 @@
   {
     "arguments": [
       "/usr/bin/cc",
-      "-Dghostty_vt_module_EXPORTS",
-      "-I/home/dick/emacs-ghostty/vendor/ghostty/include",
-      "-O2",
-      "-g",
-      "-DNDEBUG",
-      "-std=gnu99",
-      "-fPIC",
-      "-fvisibility=hidden",
-      "-Werror",
       "-c",
+      "-std=c99",
+      "-Werror",
+      "-fvisibility=hidden",
+      "-fPIC",
+      "-Ivendor/ghostty/include",
       "-o",
-      "CMakeFiles/ghostty-vt-module.dir/ghostty-vt-module.c.o",
-      "/home/dick/emacs-ghostty/ghostty-vt-module.c"
+      "ghostty-vt-module.so",
+      "elisp.c"
     ],
-    "directory": "/home/dick/emacs-ghostty/build",
-    "file": "/home/dick/emacs-ghostty/ghostty-vt-module.c",
-    "output": "/home/dick/emacs-ghostty/build/CMakeFiles/ghostty-vt-module.dir/ghostty-vt-module.c.o"
+    "directory": "/home/dick/emacs-ghostty",
+    "file": "/home/dick/emacs-ghostty/elisp.c",
+    "output": "/home/dick/emacs-ghostty/ghostty-vt-module.so"
   },
   {
     "arguments": [
       "/usr/bin/cc",
-      "-Dghostty_vt_module_EXPORTS",
-      "-I/home/dick/emacs-ghostty/vendor/ghostty/include",
-      "-O2",
-      "-g",
-      "-DNDEBUG",
-      "-std=gnu99",
-      "-fPIC",
-      "-fvisibility=hidden",
-      "-Werror",
       "-c",
+      "-std=c99",
+      "-Werror",
+      "-fvisibility=hidden",
+      "-fPIC",
+      "-Ivendor/ghostty/include",
       "-o",
-      "CMakeFiles/ghostty-vt-module.dir/elisp.c.o",
-      "/home/dick/emacs-ghostty/elisp.c"
+      "ghostty-vt-module.so",
+      "elisp.h"
     ],
-    "directory": "/home/dick/emacs-ghostty/build",
-    "file": "/home/dick/emacs-ghostty/elisp.c",
-    "output": "/home/dick/emacs-ghostty/build/CMakeFiles/ghostty-vt-module.dir/elisp.c.o"
+    "directory": "/home/dick/emacs-ghostty",
+    "file": "/home/dick/emacs-ghostty/elisp.h",
+    "output": "/home/dick/emacs-ghostty/ghostty-vt-module.so"
+  },
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-c",
+      "-std=c99",
+      "-Werror",
+      "-fvisibility=hidden",
+      "-fPIC",
+      "-Ivendor/ghostty/include",
+      "-o",
+      "ghostty-vt-module.so",
+      "emacs-module.h"
+    ],
+    "directory": "/home/dick/emacs-ghostty",
+    "file": "/home/dick/emacs-ghostty/emacs-module.h",
+    "output": "/home/dick/emacs-ghostty/ghostty-vt-module.so"
+  },
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-c",
+      "-std=c99",
+      "-Werror",
+      "-fvisibility=hidden",
+      "-fPIC",
+      "-Ivendor/ghostty/include",
+      "-o",
+      "ghostty-vt-module.so",
+      "ghostty-vt-module.c"
+    ],
+    "directory": "/home/dick/emacs-ghostty",
+    "file": "/home/dick/emacs-ghostty/ghostty-vt-module.c",
+    "output": "/home/dick/emacs-ghostty/ghostty-vt-module.so"
   }
 ]
