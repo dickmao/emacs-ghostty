@@ -14,7 +14,7 @@ ifneq ($(BEAR),)
 endif
 
 CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC \
-          -I$(GHOSTTY_SRC)/include
+          -I$(GHOSTTY_OUT)/include
 LDFLAGS := -L$(GHOSTTY_OUT)/lib -lghostty-vt \
            -Wl,-rpath,$(abspath $(GHOSTTY_OUT)/lib)
 
@@ -22,7 +22,7 @@ LDFLAGS := -L$(GHOSTTY_OUT)/lib -lghostty-vt \
 compile: ghostty-vt-module.so
 
 $(GHOSTTY_OUT)/lib/libghostty-vt.so: $(ZIGSRC)
-	cd $(GHOSTTY_SRC) && zig build lib-vt
+	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true
 
 ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.so $(CSRC)
 	$(BEAR) $(CC) $(CFLAGS) -shared -o $@ $(CSRC) $(LDFLAGS)

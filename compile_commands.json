@@ -7,7 +7,7 @@
       "-Werror",
       "-fvisibility=hidden",
       "-fPIC",
-      "-Ivendor/ghostty/include",
+      "-Ivendor/ghostty/zig-out/include",
       "-o",
       "ghostty-vt-module.so",
       "elisp.c"
@@ -24,7 +24,7 @@
       "-Werror",
       "-fvisibility=hidden",
       "-fPIC",
-      "-Ivendor/ghostty/include",
+      "-Ivendor/ghostty/zig-out/include",
       "-o",
       "ghostty-vt-module.so",
       "elisp.h"
@@ -41,7 +41,7 @@
       "-Werror",
       "-fvisibility=hidden",
       "-fPIC",
-      "-Ivendor/ghostty/include",
+      "-Ivendor/ghostty/zig-out/include",
       "-o",
       "ghostty-vt-module.so",
       "emacs-module.h"
@@ -58,7 +58,7 @@
       "-Werror",
       "-fvisibility=hidden",
       "-fPIC",
-      "-Ivendor/ghostty/include",
+      "-Ivendor/ghostty/zig-out/include",
       "-o",
       "ghostty-vt-module.so",
       "ghostty-vt-module.c"
