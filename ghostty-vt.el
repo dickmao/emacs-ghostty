@@ -21,8 +21,23 @@
   :type 'integer
   :group 'ghostty-vt)
 
+(defcustom ghostty-vt-copy-trim nil
+  "Convert screenwidth-spanning whitespace to simple newline."
+  :type 'boolean
+  :group 'ghostty-vt)
+
 (defvar-local ghostty-vt--term nil)
 (defvar-local ghostty-vt--process nil)
+(defvar-local ghostty-vt--exit-copy-mode-function nil)
+
+(defconst ghostty-vt--keys
+  '(return tab backtab iso-lefttab backspace escape
+    up down left right
+    insert delete home end prior next
+    f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12
+    kp-0 kp-1 kp-2 kp-3 kp-4 kp-5 kp-6 kp-7 kp-8 kp-9
+    kp-add kp-subtract kp-multiply kp-divide kp-equal
+    kp-decimal kp-separator kp-enter))
 
 (defun ghostty-vt--redraw ()
   (let ((inhibit-read-only t))
@@ -41,21 +56,286 @@
       (ghostty-vt--write-input ghostty-vt--term output)
       (ghostty-vt--redraw))))
 
+(defun ghostty-vt--translate-event-to-args (event)
+  "Translate EVENT to a list of args for `ghostty-vt-send-key'."
+  (let* ((modifiers (event-modifiers event))
+         (shift (memq 'shift modifiers))
+         (meta (memq 'meta modifiers))
+         (ctrl (memq 'control modifiers))
+         (raw-key (event-basic-type event))
+         (ev-keys) keys)
+    (if input-method-function
+        (let ((inhibit-read-only t))
+          (setq ev-keys (funcall input-method-function raw-key))
+          (when (listp ev-keys)
+            (dolist (k ev-keys)
+              (when-let ((key (key-description (vector k))))
+                (when (and (not (symbolp event)) shift (not meta) (not ctrl))
+                  (setq key (upcase key)))
+                (setq keys (append keys (list (list key shift meta ctrl))))))))
+      (when-let ((key (key-description (vector raw-key))))
+        (when (and (not (symbolp event)) shift (not meta) (not ctrl))
+          (setq key (upcase key)))
+        (setq keys (list (list key shift meta ctrl)))))
+    keys))
+
+(defun ghostty-vt-send-key (key &optional shift meta ctrl)
+  "Send KEY to the terminal with optional modifiers SHIFT, META, CTRL."
+  (deactivate-mark)
+  (when ghostty-vt--term
+    (let ((inhibit-redisplay t)
+          (inhibit-read-only t))
+      (when-let ((encoded (ghostty-vt--send-key ghostty-vt--term key
+                                                (and shift t) (and meta t) (and ctrl t))))
+        (when (> (length encoded) 0)
+          (process-send-string ghostty-vt--process encoded))))))
+
+(defun ghostty-vt-send (key)
+  "Send KEY to the terminal.  KEY can be anything `kbd' understands."
+  (dolist (key (ghostty-vt--translate-event-to-args
+                (listify-key-sequence (kbd key))))
+    (apply #'ghostty-vt-send-key key)))
+
+(defun ghostty-vt-send-next-key ()
+  "Read next input event and send it to the terminal."
+  (interactive)
+  (dolist (key (ghostty-vt--translate-event-to-args (read-event)))
+    (apply #'ghostty-vt-send-key key)))
+
+(defun ghostty-vt-send-string (string &optional paste-p)
+  "Send STRING to the terminal.  If PASTE-P, use bracketed paste."
+  (when ghostty-vt--term
+    (when paste-p
+      (process-send-string ghostty-vt--process "\e[200~"))
+    (process-send-string ghostty-vt--process string)
+    (when paste-p
+      (process-send-string ghostty-vt--process "\e[201~"))))
+
 (defun ghostty-vt--self-insert ()
   (interactive)
-  (let* ((keys (this-command-keys-vector))
-         (event (aref keys (1- (length keys))))
-         (mods (event-modifiers event))
-         (basic (event-basic-type event))
-         (keystr (if (characterp basic)
-                     (string basic)
-                   (format "<%s>" basic)))
-         (encoded (ghostty-vt--send-key ghostty-vt--term keystr
-                                        (and (memq 'shift mods) t)
-                                        (and (memq 'meta mods) t)
-                                        (and (memq 'control mods) t))))
-    (when (and encoded (> (length encoded) 0))
-      (process-send-string ghostty-vt--process encoded))))
+  (when ghostty-vt--term
+    (dolist (key (ghostty-vt--translate-event-to-args last-command-event))
+      (apply #'ghostty-vt-send-key key))))
+
+(defun ghostty-vt--alias-set-mark ()
+  (interactive)
+  (let ((last-command-event (aref (kbd "C-@") 0)))
+    (call-interactively #'ghostty-vt--self-insert)))
+
+(defun ghostty-vt--alias-undo ()
+  (interactive)
+  (let ((last-command-event (aref (kbd "C-_") 0)))
+    (call-interactively #'ghostty-vt--self-insert)))
+
+(defun ghostty-vt-reset-cursor-point ()
+  "Move point to the terminal cursor position."
+  (interactive)
+  (when ghostty-vt--term
+    (when-let ((pos (ghostty-vt--cursor-pos ghostty-vt--term)))
+      (let ((inhibit-read-only t))
+        (goto-char (point-min))
+        (forward-line (1- (car pos)))
+        (forward-char (1- (cdr pos)))))))
+
+(defun ghostty-vt-next-prompt (n)
+  "Move to end of Nth next prompt."
+  (interactive "p")
+  (unless n (setq n 1))
+  (if (< n 0)
+      (ghostty-vt-previous-prompt (- n))
+    (dotimes (_i n)
+      (when-let ((pos (next-single-property-change (point) 'ghostty-vt-prompt)))
+        (goto-char pos)))))
+
+(defun ghostty-vt-previous-prompt (n)
+  "Move to end of Nth previous prompt."
+  (interactive "p")
+  (unless n (setq n 1))
+  (if (<= n 0)
+      (ghostty-vt-next-prompt (- n))
+    (dotimes (_i n)
+      (when-let ((pos (previous-single-property-change (point) 'ghostty-vt-prompt)))
+        (goto-char pos)))))
+
+(defun ghostty-vt-clear ()
+  "Clear the terminal screen."
+  (interactive)
+  (ghostty-vt-send-key "l" nil nil t))
+
+(defun ghostty-vt-mouse-set-point (event &optional promote-to-region)
+  "Move point to the position clicked with the mouse."
+  (interactive "e\np")
+  (let ((pt (mouse-set-point event promote-to-region)))
+    (if (= (count-words pt (point-max)) 0)
+        (ghostty-vt-reset-cursor-point)
+      pt))
+  (keyboard-quit))
+
+(defun ghostty-vt-yank (&optional _arg)
+  "Yank (paste) text into the terminal."
+  (interactive "P")
+  (deactivate-mark)
+  (ghostty-vt-send-string (current-kill 0 t) t))
+
+(defun ghostty-vt-yank-pop (&optional arg)
+  "Yank the next entry in the kill ring."
+  (interactive "p")
+  (unless (memq last-command '(ghostty-vt-yank ghostty-vt-yank-pop))
+    (user-error "Previous command was not a yank"))
+  (ghostty-vt-send-string (current-kill (or arg 1)) t))
+
+(defun ghostty-vt-yank-pop-dwim (&optional arg)
+  "Context-aware yank-pop."
+  (interactive "p")
+  (if (memq last-command '(ghostty-vt-yank ghostty-vt-yank-pop))
+      (ghostty-vt-yank-pop arg)
+    (ghostty-vt--self-insert)))
+
+(defun ghostty-vt-trimming-kill-ring-save (beg end &optional region)
+  "Kill-ring-save, trimming screenwidth-spanning whitespace."
+  (interactive (list (mark) (point) 'region))
+  (let ((region-extract-function
+         (lambda (&rest _args)
+           (string-join
+            (save-excursion
+              (goto-char beg)
+              (cl-loop with width = (window-width)
+                       for opoint = (point)
+                       while (< opoint end)
+                       do (goto-char (min end (line-end-position) (+ opoint width)))
+                       collect (buffer-substring-no-properties
+                                opoint (max (save-excursion
+                                              (skip-chars-backward " \t")
+                                              (point))
+                                            opoint))
+                       when (= (point) (line-end-position))
+                       do (forward-char)))
+            "\n"))))
+    (kill-ring-save beg end region)))
+
+(defun ghostty-vt--prefix-keys ()
+  "Return prefix keys that ghostty-vt should not intercept."
+  (let (prefix-keys)
+    (map-keymap
+     (lambda (key binding)
+       (when (keymapp binding)
+         (let ((key-desc (key-description (vector key))))
+           (when (or (not (string-prefix-p "<" key-desc))
+                     (not (string-suffix-p ">" key-desc)))
+             (push key-desc prefix-keys)))))
+     global-map)
+    (delete (key-description (vector meta-prefix-char)) prefix-keys)))
+
+(defvar ghostty-vt-mode-map
+  (let* ((map (make-keymap))
+         (remaps '((scroll-down-command . ghostty-vt--copy-mode-then)
+                   (scroll-up-command . ghostty-vt--copy-mode-then)
+                   (recenter-top-bottom . ghostty-vt-clear)
+                   (beginning-of-buffer . ghostty-vt--copy-mode-then)
+                   (end-of-buffer . ghostty-vt--copy-mode-then)
+                   (previous-line . ghostty-vt--copy-mode-then)
+                   (next-line . ghostty-vt--copy-mode-then)))
+         (remap-keys
+          (mapcar (lambda (pair)
+                    (kbd (key-description (where-is-internal
+                                           (car pair) nil :first))))
+                  remaps)))
+    (define-key map [remap self-insert-command] #'ghostty-vt--self-insert)
+    (dolist (remap remaps)
+      (define-key map (vector 'remap (car remap)) (cdr remap)))
+    (dotimes (i 128)
+      (let ((key (char-to-string i)))
+        (unless (member (kbd (key-description key)) remap-keys)
+          (define-key map key 'ghostty-vt--self-insert))))
+    (define-key map (kbd "C-SPC") 'ghostty-vt--alias-set-mark)
+    (define-key map (kbd "C-/") 'ghostty-vt--alias-undo)
+    (define-key map (vector meta-prefix-char) (make-keymap))
+    (dotimes (i (1+ (- ?z ?a)))
+      (let ((key (vector meta-prefix-char (+ ?a i))))
+        (unless (member (kbd (key-description key)) remap-keys)
+          (define-key map key 'ghostty-vt--self-insert))))
+    (define-key map (kbd "M-y") 'ghostty-vt-yank-pop-dwim)
+    (mapc (lambda (key) (define-key map (kbd key) nil)) (ghostty-vt--prefix-keys))
+    (define-key map (kbd "C-g") nil)
+    (define-key map (where-is-internal #'execute-extended-command nil :first) nil)
+    (dolist (key ghostty-vt--keys)
+      (define-key map (vector key) #'ghostty-vt--self-insert))
+    (dolist (dir '("left" "right" "up" "down"))
+      (dolist (mod '("C-" "M-"))
+        (define-key map (vector (intern (concat mod dir))) #'ghostty-vt--self-insert)))
+    (define-key map [S-prior] #'ghostty-vt--copy-mode-then)
+    (define-key map [S-next] #'ghostty-vt--copy-mode-then)
+    (define-key map [mouse-1] #'ghostty-vt-mouse-set-point)
+    (dolist (ret '(M-return S-return C-return))
+      (define-key map (vector ret) #'ghostty-vt--self-insert))
+    (define-key map (kbd "C-c C-c") #'ghostty-vt--self-insert)
+    (define-key map (kbd "C-c C-/") #'ghostty-vt--self-insert)
+    (define-key map (kbd "C-c C-z") #'ghostty-vt--self-insert)
+    (define-key map (kbd "C-c C-d") #'ghostty-vt--self-insert)
+    (define-key map (kbd "C-c C-r") #'ghostty-vt-reset-cursor-point)
+    (define-key map (kbd "C-c C-n") #'ghostty-vt-next-prompt)
+    (define-key map (kbd "C-c C-p") #'ghostty-vt-previous-prompt)
+    (define-key map (kbd "C-c C-t") #'ghostty-vt-copy-mode)
+    (define-key map (kbd "C-c C-y") #'ghostty-vt-yank)
+    (define-key map (kbd "C-c M-y") #'ghostty-vt-yank-pop)
+    map))
+
+(defun ghostty-vt--exit-copy-mode (old-cursor-type)
+  (setq-local cursor-type old-cursor-type)
+  (use-local-map ghostty-vt-mode-map)
+  (ghostty-vt--redraw))
+
+(defun ghostty-vt--enter-copy-mode ()
+  (use-local-map nil)
+  (setq-local ghostty-vt--exit-copy-mode-function
+              (apply-partially #'ghostty-vt--exit-copy-mode cursor-type)
+              truncate-lines nil
+              cursor-type t))
+
+(defvar ghostty-vt-copy-mode-map
+  (let ((map (make-keymap)))
+    (define-key map (kbd "C-c C-t") #'ghostty-vt-copy-mode)
+    (define-key map (kbd "C-c C-y") #'ghostty-vt--copy-mode-done-then)
+    (define-key map [remap self-insert-command] 'ghostty-vt--copy-mode-done-then)
+    (define-key map [return] #'ghostty-vt-copy-mode-done)
+    (define-key map (kbd "C-m") #'ghostty-vt-copy-mode-done)
+    (define-key map (kbd "C-c C-r") #'ghostty-vt-reset-cursor-point)
+    (define-key map (kbd "C-c C-n") #'ghostty-vt-next-prompt)
+    (define-key map (kbd "C-c C-p") #'ghostty-vt-previous-prompt)
+    (when ghostty-vt-copy-trim
+      (dolist (key (where-is-internal #'kill-ring-save))
+        (define-key map key #'ghostty-vt-trimming-kill-ring-save)))
+    map))
+
+(define-minor-mode ghostty-vt-copy-mode
+  "Toggle `ghostty-vt-copy-mode'."
+  :group 'ghostty-vt
+  :lighter " GhosttyVTCopy"
+  :keymap ghostty-vt-copy-mode-map
+  (if (derived-mode-p 'ghostty-vt-mode)
+      (if ghostty-vt-copy-mode
+          (ghostty-vt--enter-copy-mode)
+        (when ghostty-vt--exit-copy-mode-function
+          (funcall ghostty-vt--exit-copy-mode-function)))
+    (user-error "You cannot enable ghostty-vt-copy-mode outside ghostty-vt buffers")))
+
+(defun ghostty-vt-copy-mode-done ()
+  (interactive)
+  (ghostty-vt-copy-mode -1))
+
+(defun ghostty-vt--copy-mode-then ()
+  (interactive)
+  (let ((keys (key-description (this-command-keys))))
+    (call-interactively #'ghostty-vt-copy-mode)
+    (when-let ((command (keymap-lookup global-map keys)))
+      (call-interactively command))))
+
+(defun ghostty-vt--copy-mode-done-then ()
+  (interactive)
+  (let ((keys (key-description (this-command-keys))))
+    (call-interactively #'ghostty-vt-copy-mode-done)
+    (when-let ((command (keymap-lookup ghostty-vt-mode-map keys)))
+      (call-interactively command))))
 
 (defun ghostty-vt--adjust-window-size (process windows)
   (let* ((size (funcall window-adjust-process-window-size-function process windows))
@@ -66,18 +346,13 @@
                           (frame-char-width) (frame-char-height))
       (cons cols rows))))
 
-(defvar ghostty-vt-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [t] #'ghostty-vt--self-insert)
-    map))
-
 (define-derived-mode ghostty-vt-mode fundamental-mode "GhosttyVT"
   "Major mode for ghostty-vt."
   (setq-local
    buffer-read-only t
    buffer-undo-list t
-   font-lock-defaults '(nil t) ;defang font-lock
-   scroll-conservatively 101 ;>100 never recenter point
+   font-lock-defaults '(nil t)
+   scroll-conservatively 101
    scroll-margin 0
    hscroll-margin 0
    hscroll-step 1
@@ -94,7 +369,6 @@
     `("/bin/sh" "-c"
       ,(format
 	"stty -nl sane %s erase ^? rows %d columns %d >/dev/null && exec %s"
-	;; https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=220009
 	(if (eq system-type 'berkeley-unix) "" "iutf8")
 	(window-body-height)
 	(max (window-max-chars-per-line) ghostty-vt-min-window-width)
@@ -122,10 +396,6 @@
 	    nil :local)
   (process-put ghostty-vt--process 'adjust-window-size-function
 	       #'ghostty-vt--adjust-window-size)
-
-  ;; Set the truncation slot for `buffer-display-table' to the ASCII code for a
-  ;; space character (32) to make the vterm buffer display a space instead of
-  ;; the default truncation character ($) when a line is truncated.
   (let ((display-table (or buffer-display-table (make-display-table))))
     (set-display-table-slot display-table 'truncation 32)
     (setq buffer-display-table display-table)))
