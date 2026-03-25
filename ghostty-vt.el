@@ -50,10 +50,10 @@
           (forward-char (1- (cdr pos))))
         (setq cursor-type nil)))))
 
-(defun ghostty-vt--filter (proc output)
+(defun ghostty-vt--filter (proc data)
   (when-let ((buf (process-buffer proc)))
     (with-current-buffer buf
-      (ghostty-vt--write-input ghostty-vt--term output)
+      (ghostty-vt--write-input ghostty-vt--term data)
       (ghostty-vt--redraw))))
 
 (defun ghostty-vt--translate-event-to-args (event)
@@ -69,12 +69,16 @@
           (setq ev-keys (funcall input-method-function raw-key))
           (when (listp ev-keys)
             (dolist (k ev-keys)
-              (when-let ((key (key-description (vector k))))
-                (when (and (not (symbolp event)) shift (not meta) (not ctrl))
+              (when-let ((key (if (characterp k)
+                                  (string k)
+                                (key-description (vector k)))))
+                (when (and (characterp k) shift (not meta) (not ctrl))
                   (setq key (upcase key)))
                 (setq keys (append keys (list (list key shift meta ctrl))))))))
-      (when-let ((key (key-description (vector raw-key))))
-        (when (and (not (symbolp event)) shift (not meta) (not ctrl))
+      (when-let ((key (if (characterp raw-key)
+                          (string raw-key)
+                        (key-description (vector raw-key)))))
+        (when (and (characterp raw-key) shift (not meta) (not ctrl))
           (setq key (upcase key)))
         (setq keys (list (list key shift meta ctrl)))))
     keys))
@@ -85,8 +89,9 @@
   (when ghostty-vt--term
     (let ((inhibit-redisplay t)
           (inhibit-read-only t))
-      (when-let ((encoded (ghostty-vt--send-key ghostty-vt--term key
-                                                (and shift t) (and meta t) (and ctrl t))))
+      (when-let ((encoded (ghostty-vt--encode-key
+			   ghostty-vt--term key
+                           (and shift t) (and meta t) (and ctrl t))))
         (when (> (length encoded) 0)
           (process-send-string ghostty-vt--process encoded))))))
 
@@ -351,7 +356,6 @@
   (setq-local
    buffer-read-only t
    buffer-undo-list t
-   font-lock-defaults '(nil t)
    scroll-conservatively 101
    scroll-margin 0
    hscroll-margin 0
@@ -368,7 +372,7 @@
     :command
     `("/bin/sh" "-c"
       ,(format
-	"stty -nl sane %s erase ^? rows %d columns %d >/dev/null && exec %s"
+	"stty -nl sane %s erase ^? rows %d columns %d >/dev/null && TERM=xterm-256color exec %s"
 	(if (eq system-type 'berkeley-unix) "" "iutf8")
 	(window-body-height)
 	(max (window-max-chars-per-line) ghostty-vt-min-window-width)
@@ -382,7 +386,7 @@
                   (kill-buffer (process-buffer proc))))))
   (require 'hl-line)
   (require 'display-line-numbers)
-  (dolist (mode '(display-line-numbers-mode hl-line-mode))
+  (dolist (mode '(display-line-numbers-mode hl-line-mode font-lock-mode))
     (let* ((mode-hook (intern-soft (concat (symbol-name mode) "-hook")))
 	   (mode-hook-value (ignore-errors (symbol-value mode-hook)))
 	   (negatory (lambda ()

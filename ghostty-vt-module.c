@@ -89,6 +89,14 @@ static void flush_run(emacs_env *env, Run *r) {
 static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
   Run r = {0};
   while (ghostty_render_state_row_cells_next(cells)) {
+    GhosttyCell raw_cell = 0;
+    ghostty_render_state_row_cells_get(
+        cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW, &raw_cell);
+    int wide = GHOSTTY_CELL_WIDE_NARROW;
+    ghostty_cell_get(raw_cell, GHOSTTY_CELL_DATA_WIDE, &wide);
+    if (wide == GHOSTTY_CELL_WIDE_SPACER_TAIL || wide == GHOSTTY_CELL_WIDE_SPACER_HEAD)
+      continue;
+
     uint32_t grapheme_len = 0;
     ghostty_render_state_row_cells_get(
         cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &grapheme_len);
@@ -263,6 +271,7 @@ static struct { const char *name; GhosttyKey key; } key_table[] = {
   {"<backspace>", GHOSTTY_KEY_BACKSPACE},  {"DEL",         GHOSTTY_KEY_BACKSPACE},
   {"<tab>",       GHOSTTY_KEY_TAB},        {"TAB",         GHOSTTY_KEY_TAB},
   {"<escape>",    GHOSTTY_KEY_ESCAPE},     {"ESC",         GHOSTTY_KEY_ESCAPE},
+  {"SPC",         GHOSTTY_KEY_SPACE},
   {"<up>",        GHOSTTY_KEY_ARROW_UP},   {"<down>",      GHOSTTY_KEY_ARROW_DOWN},
   {"<left>",      GHOSTTY_KEY_ARROW_LEFT}, {"<right>",     GHOSTTY_KEY_ARROW_RIGHT},
   {"<home>",      GHOSTTY_KEY_HOME},       {"<end>",       GHOSTTY_KEY_END},
@@ -274,11 +283,21 @@ static struct { const char *name; GhosttyKey key; } key_table[] = {
   {"<f7>",        GHOSTTY_KEY_F7},         {"<f8>",        GHOSTTY_KEY_F8},
   {"<f9>",        GHOSTTY_KEY_F9},         {"<f10>",       GHOSTTY_KEY_F10},
   {"<f11>",       GHOSTTY_KEY_F11},        {"<f12>",       GHOSTTY_KEY_F12},
+  {"<backtab>",   GHOSTTY_KEY_TAB},        {"<iso-lefttab>", GHOSTTY_KEY_TAB},
+  {"<kp-0>",      GHOSTTY_KEY_NUMPAD_0},   {"<kp-1>",      GHOSTTY_KEY_NUMPAD_1},
+  {"<kp-2>",      GHOSTTY_KEY_NUMPAD_2},   {"<kp-3>",      GHOSTTY_KEY_NUMPAD_3},
+  {"<kp-4>",      GHOSTTY_KEY_NUMPAD_4},   {"<kp-5>",      GHOSTTY_KEY_NUMPAD_5},
+  {"<kp-6>",      GHOSTTY_KEY_NUMPAD_6},   {"<kp-7>",      GHOSTTY_KEY_NUMPAD_7},
+  {"<kp-8>",      GHOSTTY_KEY_NUMPAD_8},   {"<kp-9>",      GHOSTTY_KEY_NUMPAD_9},
+  {"<kp-add>",      GHOSTTY_KEY_NUMPAD_ADD},      {"<kp-subtract>", GHOSTTY_KEY_NUMPAD_SUBTRACT},
+  {"<kp-multiply>", GHOSTTY_KEY_NUMPAD_MULTIPLY}, {"<kp-divide>",   GHOSTTY_KEY_NUMPAD_DIVIDE},
+  {"<kp-equal>",    GHOSTTY_KEY_NUMPAD_EQUAL},    {"<kp-decimal>",  GHOSTTY_KEY_NUMPAD_DECIMAL},
+  {"<kp-separator>",GHOSTTY_KEY_NUMPAD_SEPARATOR},{"<kp-enter>",    GHOSTTY_KEY_NUMPAD_ENTER},
   {NULL, 0}
 };
 
-/* ghostty-vt--send-key(term key-string shift alt ctrl) -> string */
-static emacs_value Fghostty_vt__send_key(emacs_env *env, ptrdiff_t nargs,
+/* ghostty-vt--encode-key(term key-string shift alt ctrl) -> string */
+static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
                                          emacs_value args[], void *data) {
   (void)nargs; (void)data;
   GhosttyTerm *t = term_get(env, args[0]);
@@ -347,7 +366,7 @@ int emacs_module_init(struct emacs_runtime *ert) {
   DEFUN("ghostty-vt--new",         Fghostty_vt__new,         3, 3);
   DEFUN("ghostty-vt--write-input", Fghostty_vt__write_input, 2, 2);
   DEFUN("ghostty-vt--render",      Fghostty_vt__render,      1, 1);
-  DEFUN("ghostty-vt--send-key",    Fghostty_vt__send_key,    5, 5);
+  DEFUN("ghostty-vt--encode-key",  Fghostty_vt__encode_key,  5, 5);
   DEFUN("ghostty-vt--resize",      Fghostty_vt__resize,      5, 5);
   DEFUN("ghostty-vt--cursor-pos",  Fghostty_vt__cursor_pos,  1, 1);
 #undef DEFUN
