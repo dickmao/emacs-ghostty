@@ -81,7 +81,6 @@
    scroll-margin 0
    hscroll-margin 0
    hscroll-step 1
-   truncate-lines t
    ghostty-vt--term (ghostty-vt--new
 		     (window-body-height)
 		     (max (window-max-chars-per-line)

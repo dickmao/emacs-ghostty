@@ -40,6 +40,7 @@ static void buf_grow(Buf *b, size_t extra) {
   while (nc < b->n + extra) nc *= 2;
   char *nd = realloc(b->d, nc);
   if (nd) { b->d = nd; b->cap = nc; }
+  else { free(b->d); b->d = NULL; b->n = b->cap = 0; }
 }
 static void buf_push(Buf *b, const char *s, size_t n) {
   buf_grow(b, n + 1);
@@ -177,7 +178,6 @@ static emacs_value Fghostty_vt__write_input(emacs_env *env, ptrdiff_t nargs,
   env->copy_string_contents(env, args[1], buf, &size);
   ghostty_terminal_vt_write(t->terminal, (const uint8_t *)buf, (size_t)(size - 1));
   free(buf);
-  ghostty_render_state_update(t->rs, t->terminal);
   ghostty_key_encoder_setopt_from_terminal(t->encoder, t->terminal);
   return Qnil;
 }
@@ -190,6 +190,8 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   (void)nargs; (void)data;
   GhosttyTerm *t = term_get(env, args[0]);
   if (!t) return Qnil;
+
+  ghostty_render_state_update(t->rs, t->terminal);
 
   GhosttyRenderStateDirty dirty;
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_DIRTY, &dirty);
@@ -332,7 +334,6 @@ static emacs_value Fghostty_vt__resize(emacs_env *env, ptrdiff_t nargs,
                           (uint16_t)env->extract_integer(env, args[1]),
                           (uint32_t)env->extract_integer(env, args[3]),
                           (uint32_t)env->extract_integer(env, args[4]));
-  ghostty_render_state_update(t->rs, t->terminal);
   ghostty_key_encoder_setopt_from_terminal(t->encoder, t->terminal);
   return Qnil;
 }
