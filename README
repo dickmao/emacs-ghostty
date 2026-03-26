@@ -1,0 +1,20 @@
+-------
+Install
+-------
+git clone https://github.com/dickmao/emacs-ghostty.git
+make -C emacs-ghostty install
+
+-----
+Usage
+-----
+C-y pastes from the shell's kill ring (subsequent M-y from same).
+
+C-c C-y pastes from emacs's kill ring (subsequent M-y from same).
+
+C-c C-y also exits tmux-like copy mode to paste a just copied region.
+
+Any "normal typing" (non-prefixed) key exits tmux-like copy mode.
+
+C-p immediately enters tmux-like copy mode.
+
+M-v immediately enters tmux-like copy mode.
