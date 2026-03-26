@@ -50,7 +50,44 @@ debug: ghostty-vt-module.so
 .PHONY: clean
 clean:
 	git clean -dfX
-
-.PHONY: distclean
-distclean: clean
 	git -C $(GHOSTTY_SRC) clean -dfX
+
+.PHONY: dist-clean
+dist-clean:
+	( \
+	set -e; \
+	PKG_NAME=`$(EMACS) -batch -L . -l ghostty-vt-package --eval "(princ (ghostty-vt-package-name))"`; \
+	rm -rf $${PKG_NAME}; \
+	rm -rf $${PKG_NAME}.tar; \
+	)
+
+.PHONY: dist
+dist: dist-clean ghostty-vt-module.so
+	$(EMACS) -batch -L . -l ghostty-vt-package -f ghostty-vt-package-inception
+	( \
+	set -e; \
+	PKG_NAME=`$(EMACS) -batch -L . -l ghostty-vt-package --eval "(princ (ghostty-vt-package-name))"`; \
+	rsync -R ghostty-vt-module.so $(ELSRC) $${PKG_NAME} && \
+	tar cf $${PKG_NAME}.tar $${PKG_NAME}; \
+	)
+
+.PHONY: install
+install:
+	$(call install-recipe,package-user-dir)
+
+define install-recipe
+	$(MAKE) dist
+	( \
+	set -e; \
+	INSTALL_PATH=$(1); \
+	if [[ "$${INSTALL_PATH}" == /* ]]; then INSTALL_PATH=\"$${INSTALL_PATH}\"; fi; \
+	PKG_NAME=`$(EMACS) -batch -L . -l ghostty-vt-package --eval "(princ (ghostty-vt-package-name))"`; \
+	$(EMACS) --batch -l package --eval "(setq package-user-dir (expand-file-name $${INSTALL_PATH}))" \
+	  -f package-initialize \
+	  --eval "(ignore-errors (apply (function package-delete) (alist-get (quote ghostty-vt) package-alist)))" \
+	  -f package-refresh-contents \
+	  --eval "(package-install-file \"$${PKG_NAME}.tar\")"; \
+	PKG_DIR=`$(EMACS) -batch -l package --eval "(setq package-user-dir (expand-file-name $${INSTALL_PATH}))" -f package-initialize --eval "(princ (package-desc-dir (car (alist-get 'ghostty-vt package-alist))))"`; \
+	)
+	$(MAKE) dist-clean
+endef

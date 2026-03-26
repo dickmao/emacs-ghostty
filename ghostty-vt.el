@@ -1,5 +1,27 @@
 ;;; ghostty-vt.el --- Ghostty VT terminal emulator  -*- lexical-binding: t -*-
 
+;; Copyright (C) 2026 by dickmao
+;;
+;; Author: dickie smalls <richard@commandlinesystems.com>
+;; Version: 0.0.1
+;; URL: https://github.com/dickmao/emacs-ghostty.git
+;; Package-Requires: ((emacs "29.1"))
+
+;; This file is not part of GNU Emacs.
+
+;; This file is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation; either version 2, or (at your option)
+;; any later version.
+
+;; This file is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
 (require 'ghostty-vt-module)
 
 (defgroup ghostty-vt nil
@@ -43,11 +65,11 @@
   (let ((inhibit-read-only t))
     (when (ghostty-vt--render ghostty-vt--term)
       (if-let ((pos (ghostty-vt--cursor-pos ghostty-vt--term)))
-        (progn
-          (setq cursor-type t)
-          (goto-char (point-min))
-          (forward-line (1- (car pos)))
-          (forward-char (1- (cdr pos))))
+          (progn
+            (setq cursor-type t)
+            (goto-char (point-min))
+            (forward-line (1- (car pos)))
+            (forward-char (1- (cdr pos))))
         (setq cursor-type nil)))))
 
 (defun ghostty-vt--filter (proc data)
@@ -285,17 +307,12 @@
     (define-key map (kbd "C-c M-y") #'ghostty-vt-yank-pop)
     map))
 
-(defun ghostty-vt--exit-copy-mode (old-cursor-type)
-  (setq-local cursor-type old-cursor-type)
+(defun ghostty-vt--exit-copy-mode ()
   (use-local-map ghostty-vt-mode-map)
   (ghostty-vt--redraw))
 
 (defun ghostty-vt--enter-copy-mode ()
-  (use-local-map nil)
-  (setq-local ghostty-vt--exit-copy-mode-function
-              (apply-partially #'ghostty-vt--exit-copy-mode cursor-type)
-              truncate-lines nil
-              cursor-type t))
+  (use-local-map nil))
 
 (defvar ghostty-vt-copy-mode-map
   (let ((map (make-keymap)))
