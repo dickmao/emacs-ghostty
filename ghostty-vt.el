@@ -51,6 +51,7 @@
 (defvar-local ghostty-vt--term nil)
 (defvar-local ghostty-vt--process nil)
 (defvar-local ghostty-vt--exit-copy-mode-function nil)
+(defvar-local ghostty-vt--cursor-overlay nil)
 
 (defconst ghostty-vt--keys
   '(return tab backtab iso-lefttab backspace escape
@@ -68,35 +69,21 @@
 (defun ghostty-vt--filter (proc data)
   (when-let ((buf (process-buffer proc)))
     (with-current-buffer buf
-      (ghostty-vt--write-input ghostty-vt--term data)
+      (ghostty-vt--write ghostty-vt--term data)
       (ghostty-vt--redraw))))
 
-(defun ghostty-vt--translate-event-to-args (event)
-  "Translate EVENT to a list of args for `ghostty-vt-send-key'."
+(defun ghostty-vt--send-event (event)
   (let* ((modifiers (event-modifiers event))
          (shift (memq 'shift modifiers))
          (meta (memq 'meta modifiers))
          (ctrl (memq 'control modifiers))
-         (raw-key (event-basic-type event))
-         (ev-keys) keys)
-    (if input-method-function
-        (let ((inhibit-read-only t))
-          (setq ev-keys (funcall input-method-function raw-key))
-          (when (listp ev-keys)
-            (dolist (k ev-keys)
-              (when-let ((key (if (characterp k)
-                                  (string k)
-                                (key-description (vector k)))))
-                (when (and (characterp k) shift (not meta) (not ctrl))
-                  (setq key (upcase key)))
-                (setq keys (append keys (list (list key shift meta ctrl))))))))
-      (when-let ((key (if (characterp raw-key)
-                          (string raw-key)
-                        (key-description (vector raw-key)))))
-        (when (and (characterp raw-key) shift (not meta) (not ctrl))
-          (setq key (upcase key)))
-        (setq keys (list (list key shift meta ctrl)))))
-    keys))
+         (raw-key (event-basic-type event)))
+    (when-let ((key (if (characterp raw-key)
+                        (string raw-key)
+                      (key-description (vector raw-key)))))
+      (when (and (characterp raw-key) shift (not meta) (not ctrl))
+        (setq key (upcase key)))
+      (ghostty-vt-send-key key shift meta ctrl))))
 
 (defun ghostty-vt-send-key (key &optional shift meta ctrl)
   "Send KEY to the terminal with optional modifiers SHIFT, META, CTRL."
@@ -112,15 +99,12 @@
 
 (defun ghostty-vt-send (key)
   "Send KEY to the terminal.  KEY can be anything `kbd' understands."
-  (dolist (key (ghostty-vt--translate-event-to-args
-                (listify-key-sequence (kbd key))))
-    (apply #'ghostty-vt-send-key key)))
+  (mapc #'ghostty-vt--send-event (listify-key-sequence (kbd key))))
 
 (defun ghostty-vt-send-next-key ()
   "Read next input event and send it to the terminal."
   (interactive)
-  (dolist (key (ghostty-vt--translate-event-to-args (read-event)))
-    (apply #'ghostty-vt-send-key key)))
+  (ghostty-vt--send-event (read-event)))
 
 (defun ghostty-vt-send-string (string &optional paste-p)
   "Send STRING to the terminal.  If PASTE-P, use bracketed paste."
@@ -134,8 +118,7 @@
 (defun ghostty-vt--self-insert ()
   (interactive)
   (when ghostty-vt--term
-    (dolist (key (ghostty-vt--translate-event-to-args last-command-event))
-      (apply #'ghostty-vt-send-key key))))
+    (ghostty-vt--send-event last-command-event)))
 
 (defun ghostty-vt--alias-set-mark ()
   (interactive)

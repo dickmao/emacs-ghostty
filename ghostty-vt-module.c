@@ -170,12 +170,15 @@ static emacs_value Fghostty_vt__new(emacs_env *env, ptrdiff_t nargs,
     ghostty_key_encoder_free(t->encoder); ghostty_terminal_free(t->terminal); free(t); return Qnil;
   }
   ghostty_key_encoder_setopt_from_terminal(t->encoder, t->terminal);
+  emacs_value one = env->make_integer(env, 1);
+  emacs_value overlay = env->funcall(env, Fmake_overlay, 2, (emacs_value[]){one, one});
+  env->funcall(env, Fset, 2, (emacs_value[]){Qghostty_vt__cursor_overlay, overlay});
   return env->make_user_ptr(env, term_finalizer, t);
 }
 
 /* ghostty-vt--write-input(term data) -> nil */
-static emacs_value Fghostty_vt__write_input(emacs_env *env, ptrdiff_t nargs,
-                                            emacs_value args[], void *data) {
+static emacs_value Fghostty_vt__write(emacs_env *env, ptrdiff_t nargs,
+				      emacs_value args[], void *data) {
   (void)nargs; (void)data;
   GhosttyTerm *t = term_get(env, args[0]);
   if (!t) return Qnil;
@@ -203,10 +206,9 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
 
   GhosttyRenderStateDirty dirty;
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_DIRTY, &dirty);
-  if (dirty == GHOSTTY_RENDER_STATE_DIRTY_FALSE) return Qnil;
 
+  if (dirty != GHOSTTY_RENDER_STATE_DIRTY_FALSE) {
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &t->iter);
-
   if (dirty == GHOSTTY_RENDER_STATE_DIRTY_FULL) {
     env->funcall(env, Ferase_buffer, 0, NULL);
     uint16_t y = 0;
@@ -242,10 +244,14 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
       y++;
     }
   }
+  GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
+  ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &clean_state);
+  }
 
   bool cursor_visible = false, cursor_in_viewport = false;
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, &cursor_visible);
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE, &cursor_in_viewport);
+  emacs_value overlay = env->funcall(env, Fsymbol_value, 1, (emacs_value[]){Qghostty_vt__cursor_overlay});
   if (cursor_visible && cursor_in_viewport) {
     uint16_t cx = 0, cy = 0;
     ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx);
@@ -264,13 +270,16 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
     env->funcall(env, Fforward_char, 1, (emacs_value[]){env->make_integer(env, cx)});
     emacs_value cs = env->funcall(env, Fpoint, 0, NULL);
     emacs_value ce = env->make_integer(env, env->extract_integer(env, cs) + 1);
-    emacs_value color_str = env->make_string(env, hex, 7);
-    emacs_value face = env->funcall(env, Flist, 2, (emacs_value[]){Sbackground, color_str});
-    env->funcall(env, Fput_text_property, 4, (emacs_value[]){cs, ce, Qface, face});
+    emacs_value face = env->funcall(env, Flist, 2,
+                                    (emacs_value[]){Sbackground,
+                                                    env->make_string(env, hex, 7)});
+    env->funcall(env, Fmove_overlay, 3, (emacs_value[]){overlay, cs, ce});
+    env->funcall(env, Foverlay_put, 3, (emacs_value[]){overlay, Qface, face});
+  } else {
+    emacs_value one = env->make_integer(env, 1);
+    env->funcall(env, Fmove_overlay, 3, (emacs_value[]){overlay, one, one});
   }
 
-  GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
-  ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &clean_state);
   return Qt;
 }
 
@@ -307,7 +316,7 @@ static struct { const char *name; GhosttyKey key; } key_table[] = {
 
 /* ghostty-vt--encode-key(term key-string shift alt ctrl) -> string */
 static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
-                                         emacs_value args[], void *data) {
+					   emacs_value args[], void *data) {
   (void)nargs; (void)data;
   GhosttyTerm *t = term_get(env, args[0]);
   if (!t) return env->make_string(env, "", 0);
@@ -373,7 +382,7 @@ int emacs_module_init(struct emacs_runtime *ert) {
 #define DEFUN(lname, fn, min, max) \
   bind_function(env, lname, env->make_function(env, min, max, fn, NULL, NULL))
   DEFUN("ghostty-vt--new",         Fghostty_vt__new,         3, 3);
-  DEFUN("ghostty-vt--write-input", Fghostty_vt__write_input, 2, 2);
+  DEFUN("ghostty-vt--write",       Fghostty_vt__write, 2, 2);
   DEFUN("ghostty-vt--render",      Fghostty_vt__render,      1, 1);
   DEFUN("ghostty-vt--encode-key",  Fghostty_vt__encode_key,  5, 5);
   DEFUN("ghostty-vt--resize",      Fghostty_vt__resize,      5, 5);

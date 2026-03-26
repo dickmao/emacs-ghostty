@@ -40,7 +40,7 @@ ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.so $(CSRC)
 	$(BEAR) $(CC) $(CFLAGS) -shared -o $@ $(CSRC) $(LDFLAGS)
 
 .PHONY: run
-run: ghostty-vt-module.so
+run: compile
 	$(EMACS) -Q -L $(CURDIR) -l ghostty-vt -f ghostty-vt
 
 .PHONY: debug
