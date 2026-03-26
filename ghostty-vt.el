@@ -63,14 +63,7 @@
 
 (defun ghostty-vt--redraw ()
   (let ((inhibit-read-only t))
-    (when (ghostty-vt--render ghostty-vt--term)
-      (if-let ((pos (ghostty-vt--cursor-pos ghostty-vt--term)))
-          (progn
-            (setq cursor-type t)
-            (goto-char (point-min))
-            (forward-line (1- (car pos)))
-            (forward-char (1- (cdr pos))))
-        (setq cursor-type nil)))))
+    (ghostty-vt--render ghostty-vt--term)))
 
 (defun ghostty-vt--filter (proc data)
   (when-let ((buf (process-buffer proc)))
@@ -154,15 +147,6 @@
   (let ((last-command-event (aref (kbd "C-_") 0)))
     (call-interactively #'ghostty-vt--self-insert)))
 
-(defun ghostty-vt-reset-cursor-point ()
-  "Move point to the terminal cursor position."
-  (interactive)
-  (when ghostty-vt--term
-    (when-let ((pos (ghostty-vt--cursor-pos ghostty-vt--term)))
-      (let ((inhibit-read-only t))
-        (goto-char (point-min))
-        (forward-line (1- (car pos)))
-        (forward-char (1- (cdr pos)))))))
 
 (defun ghostty-vt-next-prompt (n)
   "Move to end of Nth next prompt."
@@ -188,15 +172,6 @@
   "Clear the terminal screen."
   (interactive)
   (ghostty-vt-send-key "l" nil nil t))
-
-(defun ghostty-vt-mouse-set-point (event &optional promote-to-region)
-  "Move point to the position clicked with the mouse."
-  (interactive "e\np")
-  (let ((pt (mouse-set-point event promote-to-region)))
-    (if (= (count-words pt (point-max)) 0)
-        (ghostty-vt-reset-cursor-point)
-      pt))
-  (keyboard-quit))
 
 (defun ghostty-vt-yank (&optional _arg)
   "Yank (paste) text into the terminal."
@@ -292,14 +267,12 @@
         (define-key map (vector (intern (concat mod dir))) #'ghostty-vt--self-insert)))
     (define-key map [S-prior] #'ghostty-vt--copy-mode-then)
     (define-key map [S-next] #'ghostty-vt--copy-mode-then)
-    (define-key map [mouse-1] #'ghostty-vt-mouse-set-point)
     (dolist (ret '(M-return S-return C-return))
       (define-key map (vector ret) #'ghostty-vt--self-insert))
     (define-key map (kbd "C-c C-c") #'ghostty-vt--self-insert)
     (define-key map (kbd "C-c C-/") #'ghostty-vt--self-insert)
     (define-key map (kbd "C-c C-z") #'ghostty-vt--self-insert)
     (define-key map (kbd "C-c C-d") #'ghostty-vt--self-insert)
-    (define-key map (kbd "C-c C-r") #'ghostty-vt-reset-cursor-point)
     (define-key map (kbd "C-c C-n") #'ghostty-vt-next-prompt)
     (define-key map (kbd "C-c C-p") #'ghostty-vt-previous-prompt)
     (define-key map (kbd "C-c C-t") #'ghostty-vt-copy-mode)
@@ -308,10 +281,12 @@
     map))
 
 (defun ghostty-vt--exit-copy-mode ()
+  (setq cursor-type nil)
   (use-local-map ghostty-vt-mode-map)
   (ghostty-vt--redraw))
 
 (defun ghostty-vt--enter-copy-mode ()
+  (setq cursor-type t)
   (use-local-map nil))
 
 (defvar ghostty-vt-copy-mode-map
@@ -321,7 +296,6 @@
     (define-key map [remap self-insert-command] 'ghostty-vt--copy-mode-done-then)
     (define-key map [return] #'ghostty-vt-copy-mode-done)
     (define-key map (kbd "C-m") #'ghostty-vt-copy-mode-done)
-    (define-key map (kbd "C-c C-r") #'ghostty-vt-reset-cursor-point)
     (define-key map (kbd "C-c C-n") #'ghostty-vt-next-prompt)
     (define-key map (kbd "C-c C-p") #'ghostty-vt-previous-prompt)
     (when ghostty-vt-copy-trim
@@ -371,6 +345,7 @@
 (define-derived-mode ghostty-vt-mode fundamental-mode "GhosttyVT"
   "Major mode for ghostty-vt."
   (setq-local
+   cursor-type nil
    buffer-read-only t
    buffer-undo-list t
    scroll-conservatively 101

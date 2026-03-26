@@ -9,6 +9,7 @@ emacs_value Fgoto_char;
 emacs_value Fpoint;
 emacs_value Fpoint_min;
 emacs_value Fforward_line;
+emacs_value Fforward_char;
 emacs_value Fdelete_region;
 emacs_value Fline_end_position;
 emacs_value Fput_text_property;
@@ -43,6 +44,7 @@ void elisp_init(emacs_env *env) {
   G(Fpoint,             "point");
   G(Fpoint_min,         "point-min");
   G(Fforward_line,      "forward-line");
+  G(Fforward_char,      "forward-char");
   G(Fdelete_region,     "delete-region");
   G(Fline_end_position, "line-end-position");
   G(Fput_text_property, "put-text-property");

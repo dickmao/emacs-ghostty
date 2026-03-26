@@ -243,28 +243,37 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
     }
   }
 
+  bool cursor_visible = false, cursor_in_viewport = false;
+  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, &cursor_visible);
+  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE, &cursor_in_viewport);
+  if (cursor_visible && cursor_in_viewport) {
+    uint16_t cx = 0, cy = 0;
+    ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx);
+    ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &cy);
+    GhosttyColorRgb color;
+    bool has_cursor_color = false;
+    ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE, &has_cursor_color);
+    ghostty_render_state_get(t->rs, has_cursor_color
+                             ? GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR
+                             : GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND, &color);
+    char hex[8];
+    snprintf(hex, sizeof(hex), "#%02x%02x%02x", color.r, color.g, color.b);
+    emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
+    env->funcall(env, Fgoto_char, 1, &pm);
+    env->funcall(env, Fforward_line, 1, (emacs_value[]){env->make_integer(env, cy)});
+    env->funcall(env, Fforward_char, 1, (emacs_value[]){env->make_integer(env, cx)});
+    emacs_value cs = env->funcall(env, Fpoint, 0, NULL);
+    emacs_value ce = env->make_integer(env, env->extract_integer(env, cs) + 1);
+    emacs_value color_str = env->make_string(env, hex, 7);
+    emacs_value face = env->funcall(env, Flist, 2, (emacs_value[]){Sbackground, color_str});
+    env->funcall(env, Fput_text_property, 4, (emacs_value[]){cs, ce, Qface, face});
+  }
+
   GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
   ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &clean_state);
   return Qt;
 }
 
-/* ghostty-vt--cursor-pos(term) -> (row . col) 1-indexed, or nil */
-static emacs_value Fghostty_vt__cursor_pos(emacs_env *env, ptrdiff_t nargs,
-                                           emacs_value args[], void *data) {
-  (void)nargs; (void)data;
-  GhosttyTerm *t = term_get(env, args[0]);
-  if (!t) return Qnil;
-  bool visible = false, in_viewport = false;
-  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, &visible);
-  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE, &in_viewport);
-  if (!visible || !in_viewport) return Qnil;
-  uint16_t cx = 0, cy = 0;
-  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx);
-  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &cy);
-  emacs_value erow = env->make_integer(env, cy + 1);
-  emacs_value ecol = env->make_integer(env, cx + 1);
-  return env->funcall(env, env->intern(env, "cons"), 2, (emacs_value[]){erow, ecol});
-}
 
 static struct { const char *name; GhosttyKey key; } key_table[] = {
   {"<return>",    GHOSTTY_KEY_ENTER},      {"RET",         GHOSTTY_KEY_ENTER},
@@ -368,7 +377,6 @@ int emacs_module_init(struct emacs_runtime *ert) {
   DEFUN("ghostty-vt--render",      Fghostty_vt__render,      1, 1);
   DEFUN("ghostty-vt--encode-key",  Fghostty_vt__encode_key,  5, 5);
   DEFUN("ghostty-vt--resize",      Fghostty_vt__resize,      5, 5);
-  DEFUN("ghostty-vt--cursor-pos",  Fghostty_vt__cursor_pos,  1, 1);
 #undef DEFUN
   provide(env, "ghostty-vt-module");
   return 0;

@@ -12,6 +12,7 @@ extern emacs_value Fgoto_char;
 extern emacs_value Fpoint;
 extern emacs_value Fpoint_min;
 extern emacs_value Fforward_line;
+extern emacs_value Fforward_char;
 extern emacs_value Fdelete_region;
 extern emacs_value Fline_end_position;
 extern emacs_value Fput_text_property;
