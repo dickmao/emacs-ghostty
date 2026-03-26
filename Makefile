@@ -30,7 +30,10 @@ compile: ghostty-vt-module.so
 	  -f batch-byte-compile $(ELSRC) $(TESTSRC); \
 	  (ret=$$? ; rm -f $(ELSRC:.el=.elc) $(TESTSRC:.el=.elc) && exit $$ret)
 
-$(GHOSTTY_OUT)/lib/libghostty-vt.so: $(ZIGSRC)
+$(GHOSTTY_SRC)/.git:
+	git submodule update --init --recursive $(GHOSTTY_SRC)
+
+$(GHOSTTY_OUT)/lib/libghostty-vt.so: $(GHOSTTY_SRC)/.git $(ZIGSRC)
 	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true
 
 ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.so $(CSRC)
