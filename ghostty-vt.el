@@ -287,21 +287,23 @@
   :keymap ghostty-vt-copy-mode-map
   (unless (derived-mode-p 'ghostty-vt-mode)
     (user-error "Not a ghostty buffers"))
-  (save-excursion
-    (let ((inhibit-read-only t))
-      (if ghostty-vt-copy-mode
-	  (progn
-            (setq cursor-type t)
-            (use-local-map nil)
-            (ghostty-vt--prepend-history ghostty-vt--term))
-	(ghostty-vt--discard-history ghostty-vt--term)
-	(use-local-map ghostty-vt-mode-map)
-	(setq cursor-type nil)
-	(when ghostty-vt--pending
-	  (mapc (lambda (data) (ghostty-vt--write ghostty-vt--term data))
-		(nreverse ghostty-vt--pending))
-	  (setq ghostty-vt--pending nil))
-	(ghostty-vt--redraw)))))
+  (let ((inhibit-read-only t))
+    (if ghostty-vt-copy-mode
+	(save-excursion
+          (setq cursor-type t)
+          (use-local-map nil)
+          (let ((ws (copy-marker (window-start) t)))
+            (ghostty-vt--prepend-history ghostty-vt--term)
+            (set-window-start nil ws)
+            (set-marker ws nil)))
+      (ghostty-vt--discard-history ghostty-vt--term)
+      (use-local-map ghostty-vt-mode-map)
+      (setq cursor-type nil)
+      (when ghostty-vt--pending
+	(mapc (lambda (data) (ghostty-vt--write ghostty-vt--term data))
+	      (nreverse ghostty-vt--pending))
+	(setq ghostty-vt--pending nil))
+      (ghostty-vt--redraw))))
 
 (defun ghostty-vt-copy-mode-done ()
   (interactive)

@@ -39,7 +39,6 @@ static size_t cp_to_utf8(uint32_t cp, char out[4]) {
   else                   { out[0] = (char)(0xF0|(cp>>18));  out[1] = (char)(0x80|((cp>>12)&0x3F)); out[2] = (char)(0x80|((cp>>6)&0x3F)); out[3] = (char)(0x80|(cp&0x3F)); return 4; }
 }
 
-/* --- run: accumulated text + attrs pending insertion --- */
 #define MAX_ROW_BYTES (512 * 64)
 typedef struct {
   char text[MAX_ROW_BYTES];
@@ -76,11 +75,12 @@ static void flush_run(emacs_env *env, Run *r) {
     emacs_value face = env->funcall(env, Flist, pn, pargs);
     env->funcall(env, Fput_text_property, 4, (emacs_value[]){start, end, Qface, face});
   }
-  r->text_n = 0;
+  *r = (Run){0};
 }
 
 static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
   Run r = {0};
+  int padding = 0;
   while (ghostty_render_state_row_cells_next(cells)) {
     GhosttyCell raw_cell = 0;
     ghostty_render_state_row_cells_get(
@@ -103,6 +103,21 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
         cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &fg) == GHOSTTY_SUCCESS;
     bool has_bg = ghostty_render_state_row_cells_get(
         cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg) == GHOSTTY_SUCCESS;
+
+    /* graphemes_len=0, has_bg=false -> pure padding, avoid rendering
+       graphemes_len=0, has_bg=true  -> painted background, no text
+       graphemes_len>=1, any         -> explicit content */
+    if (grapheme_len == 0 && !has_bg) {
+      padding++;
+      continue;
+    }
+
+    if (padding > 0) {
+      /* We encountered a non-padding cell after padding. */
+      flush_run(env, &r);
+      for (int i = 0; i < padding; i++) run_push(&r, " ", 1);
+      padding = 0;
+    }
 
     bool changed = r.bold != style.bold || r.italic != style.italic
       || r.has_fg != has_fg || r.has_bg != has_bg
@@ -129,6 +144,7 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
     }
   }
   flush_run(env, &r);
+  /* padding discarded — trailing cells are pure padding */
 }
 
 static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool *has,
@@ -264,7 +280,7 @@ static void goto_viewport_row(emacs_env *env, GhosttyTerminal terminal, uint16_t
   emacs_value pmax = env->funcall(env, Fpoint_max, 0, NULL);
   env->funcall(env, Fgoto_char, 1, &pmax);
   env->funcall(env, Fforward_line, 1,
-               (emacs_value[]){env->make_integer(env, -(intmax_t)(rows - y))});
+               (emacs_value[]){env->make_integer(env, -(intmax_t)(rows - 1 - y))});
 }
 
 /* ghostty-vt--render(term)
@@ -281,7 +297,6 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
 
   GhosttyRenderStateDirty dirty;
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_DIRTY, &dirty);
-
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &t->iter);
   if (dirty == GHOSTTY_RENDER_STATE_DIRTY_FULL) {
     env->funcall(env, Ferase_buffer, 0, NULL);
@@ -330,12 +345,19 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
     goto_viewport_row(env, t->terminal, cy);
     env->funcall(env, Fforward_char, 1, (emacs_value[]){env->make_integer(env, cx)});
     emacs_value cs = env->funcall(env, Fpoint, 0, NULL);
+    emacs_value pmax = env->funcall(env, Fpoint_max, 0, NULL);
+    if (env->extract_integer(env, cs) == env->extract_integer(env, pmax)) {
+      /* Recall point-max is one past the last logical character */
+      emacs_value sp = env->make_string(env, " ", 1);
+      env->funcall(env, Finsert, 1, &sp);
+    }
     emacs_value ce = env->make_integer(env, env->extract_integer(env, cs) + 1);
     emacs_value face = env->funcall(env, Flist, 2,
                                     (emacs_value[]){Sbackground,
                                                     env->make_string(env, hex, 7)});
     env->funcall(env, Fmove_overlay, 3, (emacs_value[]){overlay, cs, ce});
     env->funcall(env, Foverlay_put, 3, (emacs_value[]){overlay, Qface, face});
+    env->funcall(env, Fgoto_char, 1, &cs);
   } else {
     env->funcall(env, Fdelete_overlay, 1, &overlay);
   }

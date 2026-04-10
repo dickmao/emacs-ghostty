@@ -41,11 +41,7 @@ ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.so $(CSRC)
 
 .PHONY: run
 run: compile
-	$(EMACS) -Q -L $(CURDIR) -l ghostty-vt -f ghostty-vt
-
-.PHONY: debug
-debug: ghostty-vt-module.so
-	gdb --args $(EMACS) -Q -L $(CURDIR) -l ghostty-vt
+	$(if $(DEBUG),gdb --args) $(EMACS) -Q -L $(CURDIR) -l ghostty-vt -f ghostty-vt
 
 .PHONY: clean
 clean:
