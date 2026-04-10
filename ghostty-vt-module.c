@@ -31,22 +31,6 @@ static GhosttyTerm *term_get(emacs_env *env, emacs_value arg) {
   return (GhosttyTerm *)env->get_user_ptr(env, arg);
 }
 
-/* --- dynamic byte buffer --- */
-typedef struct { char *d; size_t n, cap; } Buf;
-
-static void buf_grow(Buf *b, size_t extra) {
-  if (b->n + extra <= b->cap) return;
-  size_t nc = b->cap ? b->cap * 2 : 256;
-  while (nc < b->n + extra) nc *= 2;
-  char *nd = realloc(b->d, nc);
-  if (nd) { b->d = nd; b->cap = nc; }
-  else { free(b->d); b->d = NULL; b->n = b->cap = 0; }
-}
-static void buf_push(Buf *b, const char *s, size_t n) {
-  buf_grow(b, n + 1);
-  if (b->d) { memcpy(b->d + b->n, s, n); b->n += n; b->d[b->n] = '\0'; }
-}
-
 /* --- UTF-8 encoding --- */
 static size_t cp_to_utf8(uint32_t cp, char out[4]) {
   if      (cp < 0x80)    { out[0] = (char)cp; return 1; }
@@ -56,16 +40,25 @@ static size_t cp_to_utf8(uint32_t cp, char out[4]) {
 }
 
 /* --- run: accumulated text + attrs pending insertion --- */
+#define MAX_ROW_BYTES (512 * 64)
 typedef struct {
-  Buf text;
+  char text[MAX_ROW_BYTES];
+  size_t text_n;
   bool has_fg, has_bg, bold, italic;
   GhosttyColorRgb fg, bg;
 } Run;
 
+static void run_push(Run *r, const char *s, size_t n) {
+  if (r->text_n + n <= sizeof r->text) {
+    memcpy(r->text + r->text_n, s, n);
+    r->text_n += n;
+  }
+}
+
 static void flush_run(emacs_env *env, Run *r) {
-  if (r->text.n == 0) return;
+  if (r->text_n == 0) return;
   emacs_value start = env->funcall(env, Fpoint, 0, NULL);
-  emacs_value str   = env->make_string(env, r->text.d, (ptrdiff_t)r->text.n);
+  emacs_value str   = env->make_string(env, r->text, (ptrdiff_t)r->text_n);
   env->funcall(env, Finsert, 1, &str);
   if (r->bold || r->italic || r->has_fg || r->has_bg) {
     emacs_value end = env->funcall(env, Fpoint, 0, NULL);
@@ -83,7 +76,7 @@ static void flush_run(emacs_env *env, Run *r) {
     emacs_value face = env->funcall(env, Flist, pn, pargs);
     env->funcall(env, Fput_text_property, 4, (emacs_value[]){start, end, Qface, face});
   }
-  r->text.n = 0;
+  r->text_n = 0;
 }
 
 static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
@@ -123,7 +116,7 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
     }
 
     if (grapheme_len == 0) {
-      buf_push(&r.text, " ", 1);
+      run_push(&r, " ", 1);
     } else {
       uint32_t cps[16];
       uint32_t len = grapheme_len < 16 ? grapheme_len : 16;
@@ -131,12 +124,11 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
           cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, cps);
       for (uint32_t i = 0; i < len; i++) {
         char utf8[4];
-        buf_push(&r.text, utf8, cp_to_utf8(cps[i], utf8));
+        run_push(&r, utf8, cp_to_utf8(cps[i], utf8));
       }
     }
   }
   flush_run(env, &r);
-  free(r.text.d);
 }
 
 static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool *has,
@@ -156,16 +148,16 @@ static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool
   }
 }
 
-static void render_history_row(emacs_env *env, GhosttyTerminal terminal,
-			       size_t hist_row, uint16_t cols,
-			       const GhosttyRenderStateColors *colors) {
+static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
+			  const size_t row, const uint16_t cols,
+			  const GhosttyRenderStateColors *colors) {
   Run r = {0};
   for (uint16_t col = 0; col < cols; col++) {
-    GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
     GhosttyPoint pt = {
       .tag = GHOSTTY_POINT_TAG_HISTORY,
-      .value = { .coordinate = { .x = col, .y = (uint32_t)hist_row } }
+      .value = { .coordinate = { .x = col, .y = (uint32_t)row } }
     };
+    GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
     if (ghostty_terminal_grid_ref(terminal, pt, &ref) != GHOSTTY_SUCCESS)
       continue;
 
@@ -201,14 +193,13 @@ static void render_history_row(emacs_env *env, GhosttyTerminal terminal,
     if (ghostty_grid_ref_graphemes(&ref, cps, 16, &ncp) == GHOSTTY_SUCCESS && ncp > 0) {
       for (size_t i = 0; i < ncp && i < 16; i++) {
         char utf8[4];
-        buf_push(&r.text, utf8, cp_to_utf8(cps[i], utf8));
+        run_push(&r, utf8, cp_to_utf8(cps[i], utf8));
       }
     } else {
-      buf_push(&r.text, " ", 1);
+      run_push(&r, " ", 1);
     }
   }
   flush_run(env, &r);
-  free(r.text.d);
 }
 
 /* ghostty-vt--new(rows cols scrollback) -> user-ptr */
@@ -375,7 +366,7 @@ static emacs_value Fghostty_vt__prepend_history(emacs_env *env, ptrdiff_t nargs,
   env->funcall(env, Fgoto_char, 1, &pm);
 
   for (size_t row = 0; row < sb_rows; row++) {
-    render_history_row(env, t->terminal, row, cols, &colors);
+    render_sb_row(env, t->terminal, row, cols, &colors);
     emacs_value nl = env->make_string(env, "\n", 1);
     env->funcall(env, Finsert, 1, &nl);
   }
