@@ -15,7 +15,7 @@ ifneq ($(BEAR),)
 	BEAR := $(BEAR) --
 endif
 
-CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC \
+CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC -g \
           -I$(GHOSTTY_OUT)/include
 LDFLAGS := -L$(GHOSTTY_OUT)/lib -lghostty-vt \
            -Wl,-rpath,$(abspath $(GHOSTTY_OUT)/lib)
@@ -34,7 +34,7 @@ $(GHOSTTY_SRC)/.git:
 	git submodule update --init --recursive $(GHOSTTY_SRC)
 
 $(GHOSTTY_OUT)/lib/libghostty-vt.so: $(GHOSTTY_SRC)/.git $(ZIGSRC)
-	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true
+	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast
 
 ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.so $(CSRC)
 	$(BEAR) $(CC) $(CFLAGS) -shared -o $@ $(CSRC) $(LDFLAGS)

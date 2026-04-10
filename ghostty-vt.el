@@ -50,8 +50,9 @@
 
 (defvar-local ghostty-vt--term nil)
 (defvar-local ghostty-vt--process nil)
-(defvar-local ghostty-vt--exit-copy-mode-function nil)
 (defvar-local ghostty-vt--cursor-overlay nil)
+(defvar-local ghostty-vt-copy-mode nil)
+(defvar-local ghostty-vt--pending nil)
 
 (defconst ghostty-vt--keys
   '(return tab backtab iso-lefttab backspace escape
@@ -69,8 +70,10 @@
 (defun ghostty-vt--filter (proc data)
   (when-let ((buf (process-buffer proc)))
     (with-current-buffer buf
-      (ghostty-vt--write ghostty-vt--term data)
-      (ghostty-vt--redraw))))
+      (if ghostty-vt-copy-mode
+          (push data ghostty-vt--pending)
+        (ghostty-vt--write ghostty-vt--term data)
+        (ghostty-vt--redraw)))))
 
 (defun ghostty-vt--send-event (event)
   (let* ((modifiers (event-modifiers event))
@@ -263,15 +266,6 @@
     (define-key map (kbd "C-c M-y") #'ghostty-vt-yank-pop)
     map))
 
-(defun ghostty-vt--exit-copy-mode ()
-  (setq cursor-type nil)
-  (use-local-map ghostty-vt-mode-map)
-  (ghostty-vt--redraw))
-
-(defun ghostty-vt--enter-copy-mode ()
-  (setq cursor-type t)
-  (use-local-map nil))
-
 (defvar ghostty-vt-copy-mode-map
   (let ((map (make-keymap)))
     (define-key map (kbd "C-c C-t") #'ghostty-vt-copy-mode)
@@ -291,12 +285,23 @@
   :group 'ghostty-vt
   :lighter " GhosttyVTCopy"
   :keymap ghostty-vt-copy-mode-map
-  (if (derived-mode-p 'ghostty-vt-mode)
+  (unless (derived-mode-p 'ghostty-vt-mode)
+    (user-error "Not a ghostty buffers"))
+  (save-excursion
+    (let ((inhibit-read-only t))
       (if ghostty-vt-copy-mode
-          (ghostty-vt--enter-copy-mode)
-        (when ghostty-vt--exit-copy-mode-function
-          (funcall ghostty-vt--exit-copy-mode-function)))
-    (user-error "You cannot enable ghostty-vt-copy-mode outside ghostty-vt buffers")))
+	  (progn
+            (setq cursor-type t)
+            (use-local-map nil)
+            (ghostty-vt--prepend-history ghostty-vt--term))
+	(ghostty-vt--discard-history ghostty-vt--term)
+	(use-local-map ghostty-vt-mode-map)
+	(setq cursor-type nil)
+	(when ghostty-vt--pending
+	  (mapc (lambda (data) (ghostty-vt--write ghostty-vt--term data))
+		(nreverse ghostty-vt--pending))
+	  (setq ghostty-vt--pending nil))
+	(ghostty-vt--redraw)))))
 
 (defun ghostty-vt-copy-mode-done ()
   (interactive)

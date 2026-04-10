@@ -139,6 +139,78 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
   free(r.text.d);
 }
 
+static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool *has,
+				const GhosttyRenderStateColors *colors) {
+  switch (sc.tag) {
+  case GHOSTTY_STYLE_COLOR_PALETTE:
+    *out = colors->palette[sc.value.palette];
+    *has = true;
+    break;
+  case GHOSTTY_STYLE_COLOR_RGB:
+    *out = sc.value.rgb;
+    *has = true;
+    break;
+  default:
+    *has = false;
+    break;
+  }
+}
+
+static void render_history_row(emacs_env *env, GhosttyTerminal terminal,
+			       size_t hist_row, uint16_t cols,
+			       const GhosttyRenderStateColors *colors) {
+  Run r = {0};
+  for (uint16_t col = 0; col < cols; col++) {
+    GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+    GhosttyPoint pt = {
+      .tag = GHOSTTY_POINT_TAG_HISTORY,
+      .value = { .coordinate = { .x = col, .y = (uint32_t)hist_row } }
+    };
+    if (ghostty_terminal_grid_ref(terminal, pt, &ref) != GHOSTTY_SUCCESS)
+      continue;
+
+    GhosttyCell cell = 0;
+    ghostty_grid_ref_cell(&ref, &cell);
+
+    int wide = GHOSTTY_CELL_WIDE_NARROW;
+    ghostty_cell_get(cell, GHOSTTY_CELL_DATA_WIDE, &wide);
+    if (wide == GHOSTTY_CELL_WIDE_SPACER_TAIL || wide == GHOSTTY_CELL_WIDE_SPACER_HEAD)
+      continue;
+
+    GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
+    ghostty_grid_ref_style(&ref, &style);
+
+    GhosttyColorRgb fg, bg;
+    bool has_fg = false, has_bg = false;
+    resolve_style_color(style.fg_color, &fg, &has_fg, colors);
+    resolve_style_color(style.bg_color, &bg, &has_bg, colors);
+
+    bool changed = r.bold != style.bold || r.italic != style.italic
+      || r.has_fg != has_fg || r.has_bg != has_bg
+      || (has_fg && memcmp(&r.fg, &fg, sizeof fg))
+      || (has_bg && memcmp(&r.bg, &bg, sizeof bg));
+    if (changed) {
+      flush_run(env, &r);
+      r.bold = style.bold; r.italic = style.italic;
+      r.has_fg = has_fg; r.fg = fg;
+      r.has_bg = has_bg; r.bg = bg;
+    }
+
+    uint32_t cps[16];
+    size_t ncp = 0;
+    if (ghostty_grid_ref_graphemes(&ref, cps, 16, &ncp) == GHOSTTY_SUCCESS && ncp > 0) {
+      for (size_t i = 0; i < ncp && i < 16; i++) {
+        char utf8[4];
+        buf_push(&r.text, utf8, cp_to_utf8(cps[i], utf8));
+      }
+    } else {
+      buf_push(&r.text, " ", 1);
+    }
+  }
+  flush_run(env, &r);
+  free(r.text.d);
+}
+
 /* ghostty-vt--new(rows cols scrollback) -> user-ptr */
 static emacs_value Fghostty_vt__new(emacs_env *env, ptrdiff_t nargs,
                                     emacs_value args[], void *data) {
@@ -176,7 +248,7 @@ static emacs_value Fghostty_vt__new(emacs_env *env, ptrdiff_t nargs,
   return env->make_user_ptr(env, term_finalizer, t);
 }
 
-/* ghostty-vt--write-input(term data) -> nil */
+/* ghostty-vt--write(term data) -> nil */
 static emacs_value Fghostty_vt__write(emacs_env *env, ptrdiff_t nargs,
 				      emacs_value args[], void *data) {
   (void)nargs; (void)data;
@@ -193,8 +265,20 @@ static emacs_value Fghostty_vt__write(emacs_env *env, ptrdiff_t nargs,
   return Qnil;
 }
 
+/* Navigate to the start of viewport row y, given total viewport rows.
+   Anchors from point-max so scrollback above is transparent. */
+static void goto_viewport_row(emacs_env *env, GhosttyTerminal terminal, uint16_t y) {
+  uint16_t rows = 0;
+  ghostty_terminal_get(terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
+  emacs_value pmax = env->funcall(env, Fpoint_max, 0, NULL);
+  env->funcall(env, Fgoto_char, 1, &pmax);
+  env->funcall(env, Fforward_line, 1,
+               (emacs_value[]){env->make_integer(env, -(intmax_t)(rows - y))});
+}
+
 /* ghostty-vt--render(term)
-   Directly manipulates the current Emacs buffer.
+   Renders viewport into current Emacs buffer, accounting for any
+   scrollback lines prepended above the viewport.
    Returns t if the buffer was updated, nil if nothing was dirty. */
 static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
                                        emacs_value args[], void *data) {
@@ -207,46 +291,34 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   GhosttyRenderStateDirty dirty;
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_DIRTY, &dirty);
 
-  if (dirty != GHOSTTY_RENDER_STATE_DIRTY_FALSE) {
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &t->iter);
   if (dirty == GHOSTTY_RENDER_STATE_DIRTY_FULL) {
     env->funcall(env, Ferase_buffer, 0, NULL);
-    uint16_t y = 0;
-    while (ghostty_render_state_row_iterator_next(t->iter)) {
-      if (y > 0) {
-        emacs_value nl = env->make_string(env, "\n", 1);
-        env->funcall(env, Finsert, 1, &nl);
-      }
+    uint16_t rows = 0;
+    ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
+    for (uint16_t i = 1; i < rows; i++) {
+      emacs_value nl = env->make_string(env, "\n", 1);
+      env->funcall(env, Finsert, 1, &nl);
+    }
+  }
+  emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
+  env->funcall(env, Fgoto_char, 1, &pm);
+  while (ghostty_render_state_row_iterator_next(t->iter)) {
+    bool row_dirty = false;
+    ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY, &row_dirty);
+    if (row_dirty) {
+      emacs_value ls = env->funcall(env, Fpoint, 0, NULL);
+      emacs_value le = env->funcall(env, Fline_end_position, 0, NULL);
+      env->funcall(env, Fdelete_region, 2, (emacs_value[]){ls, le});
       ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &t->cells);
       render_row(env, t->cells);
       bool clean = false;
       ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean);
-      y++;
     }
-  } else {
-    uint16_t y = 0;
-    while (ghostty_render_state_row_iterator_next(t->iter)) {
-      bool row_dirty = false;
-      ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY, &row_dirty);
-      if (row_dirty) {
-        emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
-        env->funcall(env, Fgoto_char, 1, &pm);
-        emacs_value yn = env->make_integer(env, y);
-        env->funcall(env, Fforward_line, 1, &yn);
-        emacs_value ls = env->funcall(env, Fpoint, 0, NULL);
-        emacs_value le = env->funcall(env, Fline_end_position, 0, NULL);
-        env->funcall(env, Fdelete_region, 2, (emacs_value[]){ls, le});
-        ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &t->cells);
-        render_row(env, t->cells);
-        bool clean = false;
-        ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean);
-      }
-      y++;
-    }
+    env->funcall(env, Fforward_line, 1, (emacs_value[]){env->make_integer(env, 1)});
   }
   GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
   ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &clean_state);
-  }
 
   bool cursor_visible = false, cursor_in_viewport = false;
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, &cursor_visible);
@@ -264,9 +336,7 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
                              : GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND, &color);
     char hex[8];
     snprintf(hex, sizeof(hex), "#%02x%02x%02x", color.r, color.g, color.b);
-    emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
-    env->funcall(env, Fgoto_char, 1, &pm);
-    env->funcall(env, Fforward_line, 1, (emacs_value[]){env->make_integer(env, cy)});
+    goto_viewport_row(env, t->terminal, cy);
     env->funcall(env, Fforward_char, 1, (emacs_value[]){env->make_integer(env, cx)});
     emacs_value cs = env->funcall(env, Fpoint, 0, NULL);
     emacs_value ce = env->make_integer(env, env->extract_integer(env, cs) + 1);
@@ -276,13 +346,59 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
     env->funcall(env, Fmove_overlay, 3, (emacs_value[]){overlay, cs, ce});
     env->funcall(env, Foverlay_put, 3, (emacs_value[]){overlay, Qface, face});
   } else {
-    emacs_value one = env->make_integer(env, 1);
-    env->funcall(env, Fmove_overlay, 3, (emacs_value[]){overlay, one, one});
+    env->funcall(env, Fdelete_overlay, 1, &overlay);
   }
 
   return Qt;
 }
 
+/* ghostty-vt--prepend-history(term)
+   Reads all scrollback rows from ghostty and inserts them at the top of
+   the current Emacs buffer, oldest row first.
+   Returns the number of lines prepended. */
+static emacs_value Fghostty_vt__prepend_history(emacs_env *env, ptrdiff_t nargs,
+						emacs_value args[], void *data) {
+  (void)nargs; (void)data;
+  GhosttyTerm *t = term_get(env, args[0]);
+  if (!t) return env->make_integer(env, 0);
+
+  uint16_t cols = 0;
+  ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_COLS, &cols);
+
+  size_t sb_rows = 0;
+  ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS, &sb_rows);
+
+  GhosttyRenderStateColors colors = GHOSTTY_INIT_SIZED(GhosttyRenderStateColors);
+  ghostty_render_state_colors_get(t->rs, &colors);
+
+  emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
+  env->funcall(env, Fgoto_char, 1, &pm);
+
+  for (size_t row = 0; row < sb_rows; row++) {
+    render_history_row(env, t->terminal, row, cols, &colors);
+    emacs_value nl = env->make_string(env, "\n", 1);
+    env->funcall(env, Finsert, 1, &nl);
+  }
+
+  return env->make_integer(env, (intmax_t)sb_rows);
+}
+
+/* ghostty-vt--discard-history(term)
+   Removes the scrollback lines from the top of the current Emacs buffer.
+   Returns nil. */
+static emacs_value Fghostty_vt__discard_history(emacs_env *env, ptrdiff_t nargs,
+						emacs_value args[], void *data) {
+  (void)nargs; (void)data;
+  GhosttyTerm *t = term_get(env, args[0]);
+  if (!t) return Qnil;
+
+  goto_viewport_row(env, t->terminal, 0);
+
+  emacs_value vp_start = env->funcall(env, Fpoint, 0, NULL);
+  emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
+  env->funcall(env, Fdelete_region, 2, (emacs_value[]){pm, vp_start});
+  return Qnil;
+}
 
 static struct { const char *name; GhosttyKey key; } key_table[] = {
   {"<return>",    GHOSTTY_KEY_ENTER},      {"RET",         GHOSTTY_KEY_ENTER},
@@ -381,11 +497,13 @@ int emacs_module_init(struct emacs_runtime *ert) {
   elisp_init(env);
 #define DEFUN(lname, fn, min, max) \
   bind_function(env, lname, env->make_function(env, min, max, fn, NULL, NULL))
-  DEFUN("ghostty-vt--new",         Fghostty_vt__new,         3, 3);
-  DEFUN("ghostty-vt--write",       Fghostty_vt__write, 2, 2);
-  DEFUN("ghostty-vt--render",      Fghostty_vt__render,      1, 1);
-  DEFUN("ghostty-vt--encode-key",  Fghostty_vt__encode_key,  5, 5);
-  DEFUN("ghostty-vt--resize",      Fghostty_vt__resize,      5, 5);
+  DEFUN("ghostty-vt--new",             Fghostty_vt__new,             3, 3);
+  DEFUN("ghostty-vt--write",           Fghostty_vt__write,           2, 2);
+  DEFUN("ghostty-vt--render",          Fghostty_vt__render,          1, 1);
+  DEFUN("ghostty-vt--encode-key",      Fghostty_vt__encode_key,      5, 5);
+  DEFUN("ghostty-vt--resize",          Fghostty_vt__resize,          5, 5);
+  DEFUN("ghostty-vt--prepend-history", Fghostty_vt__prepend_history, 1, 1);
+  DEFUN("ghostty-vt--discard-history", Fghostty_vt__discard_history, 1, 1);
 #undef DEFUN
   provide(env, "ghostty-vt-module");
   return 0;
