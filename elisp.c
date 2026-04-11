@@ -28,6 +28,11 @@ emacs_value Sweight;
 emacs_value Sslant;
 emacs_value Sbold;
 emacs_value Sitalic;
+emacs_value Slight;
+emacs_value Sinverse_video;
+emacs_value Sstrike_through;
+emacs_value Soverline;
+emacs_value Sunderline;
 
 void bind_function(emacs_env *env, const char *name, emacs_value Sfun) {
   emacs_value Qfset = env->intern(env, "fset");
@@ -71,5 +76,10 @@ void elisp_init(emacs_env *env) {
   G(Sslant,             ":slant");
   G(Sbold,              "bold");
   G(Sitalic,            "italic");
+  G(Slight,             "light");
+  G(Sinverse_video,     ":inverse-video");
+  G(Sstrike_through,    ":strike-through");
+  G(Soverline,          ":overline");
+  G(Sunderline,         ":underline");
 #undef G
 }

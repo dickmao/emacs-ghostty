@@ -40,47 +40,59 @@ static size_t cp_to_utf8(uint32_t cp, char out[4]) {
 }
 
 #define MAX_ROW_BYTES (512 * 64)
-typedef struct {
-  char text[MAX_ROW_BYTES];
-  size_t text_n;
-  bool has_fg, has_bg, bold, italic;
-  GhosttyColorRgb fg, bg;
-} Run;
 
-static void run_push(Run *r, const char *s, size_t n) {
-  if (r->text_n + n <= sizeof r->text) {
-    memcpy(r->text + r->text_n, s, n);
-    r->text_n += n;
+static void append_cell_text(char *buf, size_t *buf_n, size_t buf_cap,
+                             GhosttyRenderStateRowCells cells, uint32_t grapheme_len) {
+  if (grapheme_len == 0) {
+    if (*buf_n < buf_cap) buf[(*buf_n)++] = ' ';
+  } else {
+    uint32_t cps[16];
+    uint32_t len = grapheme_len < 16 ? grapheme_len : 16;
+    ghostty_render_state_row_cells_get(
+        cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, cps);
+    for (uint32_t i = 0; i < len; i++) {
+      char utf8[4]; size_t n = cp_to_utf8(cps[i], utf8);
+      if (*buf_n + n <= buf_cap) { memcpy(buf + *buf_n, utf8, n); *buf_n += n; }
+    }
   }
 }
 
-static void flush_run(emacs_env *env, Run *r) {
-  if (r->text_n == 0) return;
-  emacs_value start = env->funcall(env, Fpoint, 0, NULL);
-  emacs_value str   = env->make_string(env, r->text, (ptrdiff_t)r->text_n);
+static void flush_default(emacs_env *env, char *buf, size_t n) {
+  if (n == 0) return;
+  emacs_value str = env->make_string(env, buf, (ptrdiff_t)n);
   env->funcall(env, Finsert, 1, &str);
-  if (r->bold || r->italic || r->has_fg || r->has_bg) {
-    emacs_value end = env->funcall(env, Fpoint, 0, NULL);
-    emacs_value pargs[8]; int pn = 0;
-    if (r->has_fg) {
-      char hex[8]; snprintf(hex, sizeof(hex), "#%02x%02x%02x", r->fg.r, r->fg.g, r->fg.b);
-      pargs[pn++] = Sforeground; pargs[pn++] = env->make_string(env, hex, 7);
-    }
-    if (r->has_bg) {
-      char hex[8]; snprintf(hex, sizeof(hex), "#%02x%02x%02x", r->bg.r, r->bg.g, r->bg.b);
-      pargs[pn++] = Sbackground; pargs[pn++] = env->make_string(env, hex, 7);
-    }
-    if (r->bold)   { pargs[pn++] = Sweight; pargs[pn++] = Sbold; }
-    if (r->italic) { pargs[pn++] = Sslant;  pargs[pn++] = Sitalic; }
-    emacs_value face = env->funcall(env, Flist, pn, pargs);
-    env->funcall(env, Fput_text_property, 4, (emacs_value[]){start, end, Qface, face});
+}
+
+static void insert_styled(emacs_env *env, const char *text, size_t n,
+                          const GhosttyStyle *style,
+                          GhosttyColorRgb fg, GhosttyColorRgb bg) {
+  emacs_value start = env->funcall(env, Fpoint, 0, NULL);
+  emacs_value str = env->make_string(env, text, (ptrdiff_t)n);
+  env->funcall(env, Finsert, 1, &str);
+  emacs_value end = env->funcall(env, Fpoint, 0, NULL);
+  emacs_value pargs[20]; int pn = 0;
+  if (style->fg_color.tag != GHOSTTY_STYLE_COLOR_NONE) {
+    char hex[8]; snprintf(hex, sizeof(hex), "#%02x%02x%02x", fg.r, fg.g, fg.b);
+    pargs[pn++] = Sforeground; pargs[pn++] = env->make_string(env, hex, 7);
   }
-  *r = (Run){0};
+  if (style->bg_color.tag != GHOSTTY_STYLE_COLOR_NONE) {
+    char hex[8]; snprintf(hex, sizeof(hex), "#%02x%02x%02x", bg.r, bg.g, bg.b);
+    pargs[pn++] = Sbackground; pargs[pn++] = env->make_string(env, hex, 7);
+  }
+  if (style->bold)        { pargs[pn++] = Sweight; pargs[pn++] = Sbold; }
+  else if (style->faint)  { pargs[pn++] = Sweight; pargs[pn++] = Slight; }
+  if (style->italic)      { pargs[pn++] = Sslant;  pargs[pn++] = Sitalic; }
+  if (style->inverse)     { pargs[pn++] = Sinverse_video;  pargs[pn++] = Qt; }
+  if (style->strikethrough){ pargs[pn++] = Sstrike_through; pargs[pn++] = Qt; }
+  if (style->overline)    { pargs[pn++] = Soverline;        pargs[pn++] = Qt; }
+  if (style->underline != GHOSTTY_SGR_UNDERLINE_NONE) { pargs[pn++] = Sunderline; pargs[pn++] = Qt; }
+  emacs_value face = env->funcall(env, Flist, pn, pargs);
+  env->funcall(env, Fput_text_property, 4, (emacs_value[]){start, end, Qface, face});
 }
 
 static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
-  Run r = {0};
-  int padding = 0;
+  char buf[MAX_ROW_BYTES]; size_t buf_n = 0;
+  int pending = 0;
   while (ghostty_render_state_row_cells_next(cells)) {
     GhosttyCell raw_cell = 0;
     ghostty_render_state_row_cells_get(
@@ -94,57 +106,41 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
     ghostty_render_state_row_cells_get(
         cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &grapheme_len);
 
+    GhosttyColorRgb bg = {0};
+    bool has_bg = ghostty_render_state_row_cells_get(
+        cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg) == GHOSTTY_SUCCESS;
+
+    /* grapheme_len=0, has_bg=false -> pure padding, defer
+       grapheme_len=0, has_bg=true  -> painted background, no text
+       grapheme_len>=1, any         -> explicit content */
+    if (grapheme_len == 0 && !has_bg) {
+      pending++;
+      continue;
+    }
+
+    for (int i = 0; i < pending; i++) {
+      if (buf_n < sizeof buf) buf[buf_n++] = ' ';
+    }
+    pending = 0;
+
     GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
     ghostty_render_state_row_cells_get(
         cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style);
 
-    GhosttyColorRgb fg, bg;
-    bool has_fg = ghostty_render_state_row_cells_get(
-        cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &fg) == GHOSTTY_SUCCESS;
-    bool has_bg = ghostty_render_state_row_cells_get(
-        cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg) == GHOSTTY_SUCCESS;
-
-    /* graphemes_len=0, has_bg=false -> pure padding, avoid rendering
-       graphemes_len=0, has_bg=true  -> painted background, no text
-       graphemes_len>=1, any         -> explicit content */
-    if (grapheme_len == 0 && !has_bg) {
-      padding++;
-      continue;
-    }
-
-    if (padding > 0) {
-      /* We encountered a non-padding cell after padding. */
-      flush_run(env, &r);
-      for (int i = 0; i < padding; i++) run_push(&r, " ", 1);
-      padding = 0;
-    }
-
-    bool changed = r.bold != style.bold || r.italic != style.italic
-      || r.has_fg != has_fg || r.has_bg != has_bg
-      || (has_fg && memcmp(&r.fg, &fg, sizeof fg))
-      || (has_bg && memcmp(&r.bg, &bg, sizeof bg));
-    if (changed) {
-      flush_run(env, &r);
-      r.bold = style.bold; r.italic = style.italic;
-      r.has_fg = has_fg; r.fg = fg;
-      r.has_bg = has_bg; r.bg = bg;
-    }
-
-    if (grapheme_len == 0) {
-      run_push(&r, " ", 1);
+    if (ghostty_style_is_default(&style)) {
+      append_cell_text(buf, &buf_n, sizeof buf, cells, grapheme_len);
     } else {
-      uint32_t cps[16];
-      uint32_t len = grapheme_len < 16 ? grapheme_len : 16;
+      flush_default(env, buf, buf_n); buf_n = 0;
+      GhosttyColorRgb fg = {0};
       ghostty_render_state_row_cells_get(
-          cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, cps);
-      for (uint32_t i = 0; i < len; i++) {
-        char utf8[4];
-        run_push(&r, utf8, cp_to_utf8(cps[i], utf8));
-      }
+          cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &fg);
+      char cell[64]; size_t n = 0;
+      append_cell_text(cell, &n, sizeof cell, cells, grapheme_len);
+      insert_styled(env, cell, n, &style, fg, bg);
     }
   }
-  flush_run(env, &r);
-  /* padding discarded — trailing cells are pure padding */
+  flush_default(env, buf, buf_n); buf_n = 0;
+  /* pending discarded — trailing cells are pure padding */
 }
 
 static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool *has,
@@ -167,7 +163,7 @@ static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool
 static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
 			  const size_t row, const uint16_t cols,
 			  const GhosttyRenderStateColors *colors) {
-  Run r = {0};
+  char buf[MAX_ROW_BYTES]; size_t buf_n = 0;
   for (uint16_t col = 0; col < cols; col++) {
     GhosttyPoint pt = {
       .tag = GHOSTTY_POINT_TAG_HISTORY,
@@ -188,34 +184,37 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
     GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
     ghostty_grid_ref_style(&ref, &style);
 
-    GhosttyColorRgb fg, bg;
-    bool has_fg = false, has_bg = false;
-    resolve_style_color(style.fg_color, &fg, &has_fg, colors);
-    resolve_style_color(style.bg_color, &bg, &has_bg, colors);
+    uint32_t cps[16]; size_t ncp = 0;
+    bool has_glyph = ghostty_grid_ref_graphemes(&ref, cps, 16, &ncp) == GHOSTTY_SUCCESS && ncp > 0;
 
-    bool changed = r.bold != style.bold || r.italic != style.italic
-      || r.has_fg != has_fg || r.has_bg != has_bg
-      || (has_fg && memcmp(&r.fg, &fg, sizeof fg))
-      || (has_bg && memcmp(&r.bg, &bg, sizeof bg));
-    if (changed) {
-      flush_run(env, &r);
-      r.bold = style.bold; r.italic = style.italic;
-      r.has_fg = has_fg; r.fg = fg;
-      r.has_bg = has_bg; r.bg = bg;
-    }
-
-    uint32_t cps[16];
-    size_t ncp = 0;
-    if (ghostty_grid_ref_graphemes(&ref, cps, 16, &ncp) == GHOSTTY_SUCCESS && ncp > 0) {
-      for (size_t i = 0; i < ncp && i < 16; i++) {
-        char utf8[4];
-        run_push(&r, utf8, cp_to_utf8(cps[i], utf8));
+    if (ghostty_style_is_default(&style)) {
+      if (has_glyph) {
+        for (size_t i = 0; i < ncp; i++) {
+          char utf8[4]; size_t n = cp_to_utf8(cps[i], utf8);
+          if (buf_n + n <= sizeof buf) { memcpy(buf + buf_n, utf8, n); buf_n += n; }
+        }
+      } else {
+        if (buf_n < sizeof buf) buf[buf_n++] = ' ';
       }
     } else {
-      run_push(&r, " ", 1);
+      flush_default(env, buf, buf_n); buf_n = 0;
+      GhosttyColorRgb fg = {0}, bg = {0};
+      bool unused_fg = false, unused_bg = false;
+      resolve_style_color(style.fg_color, &fg, &unused_fg, colors);
+      resolve_style_color(style.bg_color, &bg, &unused_bg, colors);
+      char cell_buf[64]; size_t cell_n = 0;
+      if (has_glyph) {
+        for (size_t i = 0; i < ncp; i++) {
+          char utf8[4]; size_t n = cp_to_utf8(cps[i], utf8);
+          if (cell_n + n <= sizeof cell_buf) { memcpy(cell_buf + cell_n, utf8, n); cell_n += n; }
+        }
+      } else {
+        cell_buf[cell_n++] = ' ';
+      }
+      insert_styled(env, cell_buf, cell_n, &style, fg, bg);
     }
   }
-  flush_run(env, &r);
+  flush_default(env, buf, buf_n); buf_n = 0;
 }
 
 /* ghostty-vt--new(rows cols scrollback) -> user-ptr */
@@ -343,14 +342,21 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
     char hex[8];
     snprintf(hex, sizeof(hex), "#%02x%02x%02x", color.r, color.g, color.b);
     goto_viewport_row(env, t->terminal, cy);
+    emacs_value ls = env->funcall(env, Fpoint, 0, NULL);
+    emacs_value le = env->funcall(env, Fline_end_position, 0, NULL);
+    intmax_t line_len = env->extract_integer(env, le) - env->extract_integer(env, ls);
+    if (line_len <= (intmax_t)cx) {
+      env->funcall(env, Fgoto_char, 1, &le);
+      intmax_t needed = (intmax_t)cx + 1 - line_len;
+      if (needed > 512) needed = 512;
+      char spaces[512];
+      memset(spaces, ' ', (size_t)needed);
+      emacs_value sp = env->make_string(env, spaces, (ptrdiff_t)needed);
+      env->funcall(env, Finsert, 1, &sp);
+      env->funcall(env, Fgoto_char, 1, &ls);
+    }
     env->funcall(env, Fforward_char, 1, (emacs_value[]){env->make_integer(env, cx)});
     emacs_value cs = env->funcall(env, Fpoint, 0, NULL);
-    emacs_value pmax = env->funcall(env, Fpoint_max, 0, NULL);
-    if (env->extract_integer(env, cs) == env->extract_integer(env, pmax)) {
-      /* Recall point-max is one past the last logical character */
-      emacs_value sp = env->make_string(env, " ", 1);
-      env->funcall(env, Finsert, 1, &sp);
-    }
     emacs_value ce = env->make_integer(env, env->extract_integer(env, cs) + 1);
     emacs_value face = env->funcall(env, Flist, 2,
                                     (emacs_value[]){Sbackground,

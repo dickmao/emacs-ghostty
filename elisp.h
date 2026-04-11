@@ -31,6 +31,11 @@ extern emacs_value Sweight;
 extern emacs_value Sslant;
 extern emacs_value Sbold;
 extern emacs_value Sitalic;
+extern emacs_value Slight;
+extern emacs_value Sinverse_video;
+extern emacs_value Sstrike_through;
+extern emacs_value Soverline;
+extern emacs_value Sunderline;
 
 void bind_function(emacs_env *env, const char *name, emacs_value Sfun);
 void provide(emacs_env *env, const char *feature);
