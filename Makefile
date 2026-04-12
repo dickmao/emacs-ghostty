@@ -7,7 +7,7 @@ TESTSRC := $(shell git ls-files test/*.el)
 GHOSTTY_SRC := vendor/ghostty
 GHOSTTY_OUT := $(GHOSTTY_SRC)/zig-out
 
-CSRC  := $(shell git ls-files '*.[ch]' 2>/dev/null || echo ghostty-vt-module.c elisp.c)
+CSRC  := $(shell git ls-files '*.c' 2>/dev/null)
 ZIGSRC := $(shell find $(GHOSTTY_SRC)/src -name '*.zig' 2>/dev/null)
 
 BEAR := $(shell command -v bear 2>/dev/null)
