@@ -304,6 +304,7 @@
             (setq ghostty-vt--scrollback-end
 		  (ghostty-vt--prepend-history ghostty-vt--term))
             (set-window-start nil ws)
+	    ;; a gc reclamation thing
             (set-marker ws nil)))
       (delete-region (point-min) ghostty-vt--scrollback-end)
       (setq ghostty-vt--scrollback-end (point-min))

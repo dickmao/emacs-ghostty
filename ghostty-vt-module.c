@@ -289,6 +289,7 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   env->funcall(env, Fgoto_char, 1, &pm);
 
   emacs_value overlay = env->funcall(env, Fsymbol_value, 1, (emacs_value[]){Qghostty_vt__cursor_overlay});
+  emacs_value cs = Qnil;
   env->funcall(env, Fdelete_overlay, 1, &overlay);
 
   intmax_t window_width = env->extract_integer(env, env->funcall(env, Fwindow_width, 0, NULL));
@@ -330,15 +331,6 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
     if (y == cy) {
       emacs_value restore = env->funcall(env, Fpoint, 0, NULL);
       env->funcall(env, Fgoto_char, 1, &beg);
-
-      GhosttyColorRgb color;
-      bool has_cursor_color = false;
-      ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE, &has_cursor_color);
-      ghostty_render_state_get(t->rs, has_cursor_color
-			       ? GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR
-			       : GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND, &color);
-      char hex[8];
-      snprintf(hex, sizeof(hex), "#%02x%02x%02x", color.r, color.g, color.b);
       emacs_value end = env->funcall(env, Fline_end_position, 0, NULL);
       intmax_t len = env->extract_integer(env, end) - env->extract_integer(env, beg);
       if (len <= (intmax_t)cx) {
@@ -349,11 +341,19 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
 	memset(spaces, ' ', (size_t)needed);
 	emacs_value sp = env->make_string(env, spaces, (ptrdiff_t)needed);
 	env->funcall(env, Finsert, 1, &sp);
-env->funcall(env, Fgoto_char, 1, &beg);
       }
+      env->funcall(env, Fgoto_char, 1, &beg);
       env->funcall(env, Fforward_char, 1, (emacs_value[]){env->make_integer(env, cx)});
-      emacs_value cs = env->funcall(env, Fpoint, 0, NULL);
+      cs = env->funcall(env, Fpoint, 0, NULL);
       emacs_value ce = env->make_integer(env, env->extract_integer(env, cs) + 1);
+      GhosttyColorRgb color;
+      bool has_cursor_color = false;
+      ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE, &has_cursor_color);
+      ghostty_render_state_get(t->rs, has_cursor_color
+			       ? GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR
+			       : GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND, &color);
+      char hex[8];
+      snprintf(hex, sizeof(hex), "#%02x%02x%02x", color.r, color.g, color.b);
       emacs_value face = env->funcall(env, Flist, 2,
 				      (emacs_value[]){Sbackground,
 						      env->make_string(env, hex, 7)});
@@ -362,6 +362,8 @@ env->funcall(env, Fgoto_char, 1, &beg);
       env->funcall(env, Fgoto_char, 1, &restore);
     }
   }
+  if (env->is_not_nil(env, cs))
+    env->funcall(env, Fgoto_char, 1, &cs);
   GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
   ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &clean_state);
   return Qt;
