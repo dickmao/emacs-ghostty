@@ -276,13 +276,12 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, &cursor_visible);
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE, &cursor_in_viewport);
 
-  uint16_t cx = 0, cy = 0;
-  if (cursor_visible && cursor_in_viewport
-      && GHOSTTY_SUCCESS != ghostty_render_state_get
-      (t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx)
-      || GHOSTTY_SUCCESS != ghostty_render_state_get
-      (t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &cy)) {
-    cx = cy = -1;
+  uint16_t cx = -1, cy = -1;
+  if (cursor_visible &&
+      cursor_in_viewport &&
+      (GHOSTTY_SUCCESS == ghostty_render_state_get
+       (t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx))) {
+    ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &cy);
   }
 
   emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
@@ -291,7 +290,6 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   emacs_value overlay = env->funcall(env, Fsymbol_value, 1, (emacs_value[]){Qghostty_vt__cursor_overlay});
   emacs_value cs = Qnil;
   env->funcall(env, Fdelete_overlay, 1, &overlay);
-
   intmax_t window_width = env->extract_integer(env, env->funcall(env, Fwindow_width, 0, NULL));
   for (int y = 0; ghostty_render_state_row_iterator_next(t->iter); ++y) {
     bool row_dirty = false;

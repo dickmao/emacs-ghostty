@@ -41,7 +41,7 @@
 	   (should (eq ghostty-vt--process (get-buffer-process (current-buffer))))
 	   (cl-loop repeat 100
 		    until (not (zerop (current-column)))
-		    do (sleep-for 2)
+		    do (sleep-for 0.2)
 		    finally
 		    (progn (setq test-ghostty/prompt
 				 (buffer-substring-no-properties
