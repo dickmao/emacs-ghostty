@@ -284,8 +284,8 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
     ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &cy);
   }
 
-  emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
-  env->funcall(env, Fgoto_char, 1, &pm);
+  emacs_value pmin = env->funcall(env, Fpoint_min, 0, NULL);
+  env->funcall(env, Fgoto_char, 1, &pmin);
 
   emacs_value overlay = env->funcall(env, Fsymbol_value, 1, (emacs_value[]){Qghostty_vt__cursor_overlay});
   emacs_value cs = Qnil;
@@ -307,8 +307,8 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
       } else {
 	end = env->make_integer(env, physical);;
       }
-      emacs_value pm = env->funcall(env, Fpoint_max, 0, NULL);
-      if (env->extract_integer(env, end) <= env->extract_integer(env, pm))
+      emacs_value pmax = env->funcall(env, Fpoint_max, 0, NULL);
+      if (env->extract_integer(env, end) <= env->extract_integer(env, pmax))
 	env->funcall(env, Fdelete_region, 2, (emacs_value[]){beg, end});
       ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &t->cells);
       render_row(env, t->cells);
@@ -338,6 +338,7 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
 	char spaces[512];
 	memset(spaces, ' ', (size_t)needed);
 	emacs_value sp = env->make_string(env, spaces, (ptrdiff_t)needed);
+	restore = env->make_integer(env, env->extract_integer(env, restore) + needed);
 	env->funcall(env, Finsert, 1, &sp);
       }
       env->funcall(env, Fgoto_char, 1, &beg);

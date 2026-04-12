@@ -41,7 +41,7 @@ ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.so $(CSRC)
 
 .PHONY: run
 run: compile
-	$(if $(DEBUG),gdb --args) $(EMACS) -Q -L $(CURDIR) -l ghostty-vt --eval "(setq debug-on-error t)" -f ghostty-vt
+	$(if $(DEBUG),DEBUGINFOD_URLS= gdb --args) $(EMACS) -Q -L $(CURDIR) -l ghostty-vt --eval "(setq debug-on-error t)" -f ghostty-vt
 
 .PHONY: clean
 clean:
