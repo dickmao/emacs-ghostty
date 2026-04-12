@@ -63,6 +63,13 @@
     kp-add kp-subtract kp-multiply kp-divide kp-equal
     kp-decimal kp-separator kp-enter))
 
+(defun next-line-add-ok ()
+  (if (save-excursion (end-of-line) (eobp))
+      (let (abbrev-mode)
+	(end-of-line)
+	(insert "\n"))
+    (vertical-motion 1)))
+
 (defun ghostty-vt--redraw ()
   (let ((inhibit-read-only t))
     (ghostty-vt--render ghostty-vt--term)))

@@ -246,17 +246,6 @@ static emacs_value Fghostty_vt__write(emacs_env *env, ptrdiff_t nargs,
   return Qnil;
 }
 
-/* Navigate to the start of viewport row y, given total viewport rows.
-   Anchors from point-max so scrollback above is transparent. */
-static void goto_viewport_row(emacs_env *env, GhosttyTerminal terminal, uint16_t y) {
-  uint16_t rows = 0;
-  ghostty_terminal_get(terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
-  emacs_value pmax = env->funcall(env, Fpoint_max, 0, NULL);
-  env->funcall(env, Fgoto_char, 1, &pmax);
-  env->funcall(env, Fforward_line, 1,
-               (emacs_value[]){env->make_integer(env, -(intmax_t)(rows - 1 - y))});
-}
-
 /* ghostty-vt--render(term)
    Renders viewport into current Emacs buffer, accounting for any
    scrollback lines prepended above the viewport.
@@ -268,81 +257,100 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   if (!t) return Qnil;
 
   ghostty_render_state_update(t->rs, t->terminal);
-
-  GhosttyRenderStateDirty dirty;
-  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_DIRTY, &dirty);
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &t->iter);
-  if (dirty == GHOSTTY_RENDER_STATE_DIRTY_FULL) {
-    env->funcall(env, Ferase_buffer, 0, NULL);
-    uint16_t rows = 0;
-    ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
-    for (uint16_t i = 1; i < rows; i++) {
-      emacs_value nl = env->make_string(env, "\n", 1);
-      env->funcall(env, Finsert, 1, &nl);
-    }
-  }
-  emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
-  env->funcall(env, Fgoto_char, 1, &pm);
-  while (ghostty_render_state_row_iterator_next(t->iter)) {
-    bool row_dirty = false;
-    ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY, &row_dirty);
-    if (row_dirty) {
-      emacs_value ls = env->funcall(env, Fpoint, 0, NULL);
-      emacs_value le = env->funcall(env, Fline_end_position, 0, NULL);
-      env->funcall(env, Fdelete_region, 2, (emacs_value[]){ls, le});
-      ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &t->cells);
-      render_row(env, t->cells);
-      bool clean = false;
-      ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean);
-    }
-    env->funcall(env, Fforward_line, 1, (emacs_value[]){env->make_integer(env, 1)});
-  }
-  GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
-  ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &clean_state);
 
   bool cursor_visible = false, cursor_in_viewport = false;
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VISIBLE, &cursor_visible);
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_HAS_VALUE, &cursor_in_viewport);
-  emacs_value overlay = env->funcall(env, Fsymbol_value, 1, (emacs_value[]){Qghostty_vt__cursor_overlay});
-  if (cursor_visible && cursor_in_viewport) {
-    uint16_t cx = 0, cy = 0;
-    ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx);
-    ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &cy);
-    GhosttyColorRgb color;
-    bool has_cursor_color = false;
-    ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE, &has_cursor_color);
-    ghostty_render_state_get(t->rs, has_cursor_color
-                             ? GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR
-                             : GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND, &color);
-    char hex[8];
-    snprintf(hex, sizeof(hex), "#%02x%02x%02x", color.r, color.g, color.b);
-    goto_viewport_row(env, t->terminal, cy);
-    emacs_value ls = env->funcall(env, Fpoint, 0, NULL);
-    emacs_value le = env->funcall(env, Fline_end_position, 0, NULL);
-    intmax_t line_len = env->extract_integer(env, le) - env->extract_integer(env, ls);
-    if (line_len <= (intmax_t)cx) {
-      env->funcall(env, Fgoto_char, 1, &le);
-      intmax_t needed = (intmax_t)cx + 1 - line_len;
-      if (needed > 512) needed = 512;
-      char spaces[512];
-      memset(spaces, ' ', (size_t)needed);
-      emacs_value sp = env->make_string(env, spaces, (ptrdiff_t)needed);
-      env->funcall(env, Finsert, 1, &sp);
-      env->funcall(env, Fgoto_char, 1, &ls);
-    }
-    env->funcall(env, Fforward_char, 1, (emacs_value[]){env->make_integer(env, cx)});
-    emacs_value cs = env->funcall(env, Fpoint, 0, NULL);
-    emacs_value ce = env->make_integer(env, env->extract_integer(env, cs) + 1);
-    emacs_value face = env->funcall(env, Flist, 2,
-                                    (emacs_value[]){Sbackground,
-                                                    env->make_string(env, hex, 7)});
-    env->funcall(env, Fmove_overlay, 3, (emacs_value[]){overlay, cs, ce});
-    env->funcall(env, Foverlay_put, 3, (emacs_value[]){overlay, Qface, face});
-    env->funcall(env, Fgoto_char, 1, &cs);
-  } else {
-    env->funcall(env, Fdelete_overlay, 1, &overlay);
+
+  uint16_t cx = 0, cy = 0;
+  if (cursor_visible && cursor_in_viewport
+      && GHOSTTY_SUCCESS != ghostty_render_state_get
+      (t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X, &cx)
+      || GHOSTTY_SUCCESS != ghostty_render_state_get
+      (t->rs, GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y, &cy)) {
+    cx = cy = -1;
   }
 
+  emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
+  env->funcall(env, Fgoto_char, 1, &pm);
+
+  emacs_value overlay = env->funcall(env, Fsymbol_value, 1, (emacs_value[]){Qghostty_vt__cursor_overlay});
+  env->funcall(env, Fdelete_overlay, 1, &overlay);
+
+  intmax_t window_width = env->extract_integer(env, env->funcall(env, Fwindow_width, 0, NULL));
+  for (int y = 0; ghostty_render_state_row_iterator_next(t->iter); ++y) {
+    bool row_dirty = false;
+    ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY, &row_dirty);
+    emacs_value beg = env->funcall(env, Fpoint, 0, NULL);
+    if (!row_dirty) {
+      env->funcall(env, Fvertical_motion, 1, (emacs_value[]){env->make_integer(env, 1)});
+    } else {
+      intmax_t logical = env->extract_integer(env, env->funcall(env, Fline_end_position, 0, NULL));
+      intmax_t physical = env->extract_integer(env, beg) + window_width;
+      emacs_value end;
+      if (logical <= physical) {
+	/* +1 for newline */
+	end = env->make_integer(env, logical + 1);
+      } else {
+	end = env->make_integer(env, physical);;
+      }
+      emacs_value pm = env->funcall(env, Fpoint_max, 0, NULL);
+      if (env->extract_integer(env, end) <= env->extract_integer(env, pm))
+	env->funcall(env, Fdelete_region, 2, (emacs_value[]){beg, end});
+      ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &t->cells);
+      render_row(env, t->cells);
+
+      GhosttyRow raw_row;
+      ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_RAW, &raw_row);
+      bool wrap = false;
+      ghostty_row_get(raw_row, GHOSTTY_ROW_DATA_WRAP, &wrap);
+      if (!wrap) {
+	emacs_value nl = env->make_string(env, "\n", 1);
+	env->funcall(env, Finsert, 1, &nl);
+      }
+
+      bool clean = false;
+      ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean);
+    }
+
+    if (y == cy) {
+      emacs_value restore = env->funcall(env, Fpoint, 0, NULL);
+      env->funcall(env, Fgoto_char, 1, &beg);
+
+      GhosttyColorRgb color;
+      bool has_cursor_color = false;
+      ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR_HAS_VALUE, &has_cursor_color);
+      ghostty_render_state_get(t->rs, has_cursor_color
+			       ? GHOSTTY_RENDER_STATE_DATA_COLOR_CURSOR
+			       : GHOSTTY_RENDER_STATE_DATA_COLOR_FOREGROUND, &color);
+      char hex[8];
+      snprintf(hex, sizeof(hex), "#%02x%02x%02x", color.r, color.g, color.b);
+      emacs_value end = env->funcall(env, Fline_end_position, 0, NULL);
+      intmax_t len = env->extract_integer(env, end) - env->extract_integer(env, beg);
+      if (len <= (intmax_t)cx) {
+	env->funcall(env, Fgoto_char, 1, &end);
+	intmax_t needed = (intmax_t)cx + 1 - len;
+	if (needed > 512) needed = 512;
+	char spaces[512];
+	memset(spaces, ' ', (size_t)needed);
+	emacs_value sp = env->make_string(env, spaces, (ptrdiff_t)needed);
+	env->funcall(env, Finsert, 1, &sp);
+env->funcall(env, Fgoto_char, 1, &beg);
+      }
+      env->funcall(env, Fforward_char, 1, (emacs_value[]){env->make_integer(env, cx)});
+      emacs_value cs = env->funcall(env, Fpoint, 0, NULL);
+      emacs_value ce = env->make_integer(env, env->extract_integer(env, cs) + 1);
+      emacs_value face = env->funcall(env, Flist, 2,
+				      (emacs_value[]){Sbackground,
+						      env->make_string(env, hex, 7)});
+      env->funcall(env, Fmove_overlay, 3, (emacs_value[]){overlay, cs, ce});
+      env->funcall(env, Foverlay_put, 3, (emacs_value[]){overlay, Qface, face});
+      env->funcall(env, Fgoto_char, 1, &restore);
+    }
+  }
+  GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
+  ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &clean_state);
   return Qt;
 }
 
@@ -385,8 +393,6 @@ static emacs_value Fghostty_vt__discard_history(emacs_env *env, ptrdiff_t nargs,
   (void)nargs; (void)data;
   GhosttyTerm *t = term_get(env, args[0]);
   if (!t) return Qnil;
-
-  goto_viewport_row(env, t->terminal, 0);
 
   emacs_value vp_start = env->funcall(env, Fpoint, 0, NULL);
   emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
@@ -491,13 +497,13 @@ int emacs_module_init(struct emacs_runtime *ert) {
   elisp_init(env);
 #define DEFUN(lname, fn, min, max) \
   bind_function(env, lname, env->make_function(env, min, max, fn, NULL, NULL))
-  DEFUN("ghostty-vt--new",             Fghostty_vt__new,             3, 3);
-  DEFUN("ghostty-vt--write",           Fghostty_vt__write,           2, 2);
-  DEFUN("ghostty-vt--render",          Fghostty_vt__render,          1, 1);
-  DEFUN("ghostty-vt--encode-key",      Fghostty_vt__encode_key,      5, 5);
-  DEFUN("ghostty-vt--resize",          Fghostty_vt__resize,          5, 5);
-  DEFUN("ghostty-vt--prepend-history", Fghostty_vt__prepend_history, 1, 1);
-  DEFUN("ghostty-vt--discard-history", Fghostty_vt__discard_history, 1, 1);
+  DEFUN("ghostty-vt--new",              Fghostty_vt__new,             3, 3);
+  DEFUN("ghostty-vt--write",            Fghostty_vt__write,           2, 2);
+  DEFUN("ghostty-vt--render",           Fghostty_vt__render,          1, 1);
+  DEFUN("ghostty-vt--encode-key",       Fghostty_vt__encode_key,      5, 5);
+  DEFUN("ghostty-vt--resize",           Fghostty_vt__resize,          5, 5);
+  DEFUN("ghostty-vt--prepend-history",  Fghostty_vt__prepend_history, 1, 1);
+  DEFUN("ghostty-vt--discard-history",  Fghostty_vt__discard_history, 1, 1);
 #undef DEFUN
   provide(env, "ghostty-vt-module");
   return 0;
