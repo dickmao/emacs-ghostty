@@ -53,6 +53,7 @@
 (defvar-local ghostty-vt--cursor-overlay nil)
 (defvar-local ghostty-vt-copy-mode nil)
 (defvar-local ghostty-vt--pending nil)
+(defvar-local ghostty-vt--scrollback-end nil)
 
 (defconst ghostty-vt--keys
   '(return tab backtab iso-lefttab backspace escape
@@ -300,10 +301,12 @@
           (setq cursor-type t)
           (use-local-map nil)
           (let ((ws (copy-marker (window-start) t)))
-            (ghostty-vt--prepend-history ghostty-vt--term)
+            (setq ghostty-vt--scrollback-end
+		  (ghostty-vt--prepend-history ghostty-vt--term))
             (set-window-start nil ws)
             (set-marker ws nil)))
-      (ghostty-vt--discard-history ghostty-vt--term)
+      (delete-region (point-min) ghostty-vt--scrollback-end)
+      (setq ghostty-vt--scrollback-end (point-min))
       (use-local-map ghostty-vt-mode-map)
       (setq cursor-type nil)
       (when ghostty-vt--pending

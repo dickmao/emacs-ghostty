@@ -164,6 +164,9 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
 			  const GhosttyRenderStateColors *colors) {
   char buf[MAX_ROW_BYTES]; size_t buf_n = 0;
   int padding = 0;
+  GhosttyResult q_row = GHOSTTY_NO_VALUE;
+  GhosttyRow grid_row;
+
   for (uint16_t col = 0; col < cols; col++) {
     GhosttyPoint pt = {
       .tag = GHOSTTY_POINT_TAG_HISTORY,
@@ -172,6 +175,8 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
     GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
     if (ghostty_terminal_grid_ref(terminal, pt, &ref) != GHOSTTY_SUCCESS)
       continue;
+    if (q_row != GHOSTTY_SUCCESS)
+      q_row = ghostty_grid_ref_row(&ref, &grid_row);
     GhosttyCell cell = 0;
     ghostty_grid_ref_cell(&ref, &cell);
     int wide = GHOSTTY_CELL_WIDE_NARROW;
@@ -188,8 +193,16 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
     resolve_style_color(style.bg_color, &bg, &unused, colors);
     process_cell(env, buf, &buf_n, sizeof buf, &padding, &style, cps, ncp, fg, bg);
   }
+  /* residual padding is discarded */
   flush_default(env, buf, buf_n); buf_n = 0;
-  /* padding discarded — trailing cells are pure padding */
+  if (q_row == GHOSTTY_SUCCESS) {
+    bool wrap = false;
+    ghostty_row_get(grid_row, GHOSTTY_ROW_DATA_WRAP, &wrap);
+    if (!wrap) {
+      emacs_value nl = env->make_string(env, "\n", 1);
+      env->funcall(env, Finsert, 1, &nl);
+    }
+  }
 }
 
 /* ghostty-vt--new(rows cols scrollback) -> user-ptr */
@@ -378,26 +391,9 @@ static emacs_value Fghostty_vt__prepend_history(emacs_env *env, ptrdiff_t nargs,
 
   for (size_t row = 0; row < sb_rows; row++) {
     render_sb_row(env, t->terminal, row, cols, &colors);
-    emacs_value nl = env->make_string(env, "\n", 1);
-    env->funcall(env, Finsert, 1, &nl);
   }
 
-  return env->make_integer(env, (intmax_t)sb_rows);
-}
-
-/* ghostty-vt--discard-history(term)
-   Removes the scrollback lines from the top of the current Emacs buffer.
-   Returns nil. */
-static emacs_value Fghostty_vt__discard_history(emacs_env *env, ptrdiff_t nargs,
-						emacs_value args[], void *data) {
-  (void)nargs; (void)data;
-  GhosttyTerm *t = term_get(env, args[0]);
-  if (!t) return Qnil;
-
-  emacs_value vp_start = env->funcall(env, Fpoint, 0, NULL);
-  emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
-  env->funcall(env, Fdelete_region, 2, (emacs_value[]){pm, vp_start});
-  return Qnil;
+  return env->funcall(env, Fpoint, 0, NULL);
 }
 
 static struct { const char *name; GhosttyKey key; } key_table[] = {
@@ -503,7 +499,6 @@ int emacs_module_init(struct emacs_runtime *ert) {
   DEFUN("ghostty-vt--encode-key",       Fghostty_vt__encode_key,      5, 5);
   DEFUN("ghostty-vt--resize",           Fghostty_vt__resize,          5, 5);
   DEFUN("ghostty-vt--prepend-history",  Fghostty_vt__prepend_history, 1, 1);
-  DEFUN("ghostty-vt--discard-history",  Fghostty_vt__discard_history, 1, 1);
 #undef DEFUN
   provide(env, "ghostty-vt-module");
   return 0;
