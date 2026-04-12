@@ -361,6 +361,12 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
       env->funcall(env, Fgoto_char, 1, &restore);
     }
   }
+  /* delete rest */
+  emacs_value beg = env->funcall(env, Fpoint, 0, NULL);
+  emacs_value end = env->funcall(env, Fpoint_max, 0, NULL);
+  env->funcall(env, Fdelete_region, 2, (emacs_value[]){beg, end});
+
+  /* align point with cursor */
   if (env->is_not_nil(env, cs))
     env->funcall(env, Fgoto_char, 1, &cs);
   GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;

@@ -230,6 +230,8 @@
                    (beginning-of-buffer . ghostty-vt--copy-mode-then)
                    (end-of-buffer . ghostty-vt--copy-mode-then)
                    (previous-line . ghostty-vt--copy-mode-then)
+                   (backward-page . ghostty-vt--copy-mode-then)
+                   (forward-page . ghostty-vt--copy-mode-then)
                    (next-line . ghostty-vt--copy-mode-then)))
          (remap-keys
           (mapcar (lambda (pair)
