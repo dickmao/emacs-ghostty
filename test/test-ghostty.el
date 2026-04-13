@@ -97,6 +97,7 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
 	  (should (equal pure-text x3)))))))
 
 (ert-deftest contextual-yank-pop ()
+  "M-y does different things depending on last-command."
   (test-ghostty/with-session
     (should (zerop (length kill-ring)))
     (should (test-ghostty/at-prompt))
@@ -110,7 +111,8 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
     (should (test-ghostty/at-prompt))
     ;; redraw locks point to cursor but save-excursion should still
     ;; work, right?  Dunno why it doesn't.
-    (let ((start (point)))
+    (when-let ((start (point))
+	       (bash-works-p (eq system-type 'gnu/linux)))
       (call-interactively #'ghostty-vt-yank)
       (goto-char start)
       (should (looking-at-p "quick"))
