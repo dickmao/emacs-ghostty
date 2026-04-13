@@ -3,10 +3,12 @@ name: CI
 on:
   pull_request:
     paths-ignore:
+    - 'README**'
     - '**.rst'
     - '**.texi'
   push:
     paths-ignore:
+    - 'README**'
     - '**.rst'
     - '**.texi'
     branches-ignore:
