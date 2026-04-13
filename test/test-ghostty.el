@@ -69,8 +69,7 @@
   (ghostty-vt-send-key "<return>")
   (cl-loop repeat 100
 	   until (test-ghostty/at-prompt)
-	   do (sleep-for 2)
-	   do (prin1 (buffer-string))
+	   do (sleep-for 0.2)
 	   finally (should (test-ghostty/at-prompt))))
 
 (ert-deftest basic ()
@@ -134,12 +133,25 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
       (ghostty-vt-send-key "\C-y")
       (save-excursion
 	(goto-char start)
-	(prin1 (buffer-string))
 	(should (looking-at-p "quick")))
       (ghostty-vt-send-key "y" nil t nil) ;M-y
       (save-excursion
 	(goto-char start)
 	(should (looking-at-p " brown"))))))
+
+(ert-deftest scrollback ()
+  "Scrollback with wrapped lines: viewport is unchanged after copy-mode round-trip."
+  (test-ghostty/with-session
+    (let* ((wide (make-string (+ 2 (window-width)) ?w))
+           (cmd (format "echo %s; for i in $(seq 1 80); do echo line-$i; done" wide)))
+      (test-ghostty/run cmd)
+      (let ((snapshot (buffer-string)))
+        (call-interactively #'ghostty-vt-copy-mode)
+        (should (> ghostty-vt--scrollback-end (point-min)))
+        (goto-char (point-min))
+        (should (search-forward (substring wide 0 20) ghostty-vt--scrollback-end t))
+        (call-interactively #'ghostty-vt-copy-mode)
+        (should (equal (buffer-string) snapshot))))))
 
 (provide 'test-ghostty)
 ;;; test-ghostty.el ends here
