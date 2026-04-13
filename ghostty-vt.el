@@ -105,14 +105,10 @@
   (interactive)
   (ghostty-vt--send-event (read-event)))
 
-(defun ghostty-vt-send-string (string &optional paste-p)
-  "Send STRING to the terminal.  If PASTE-P, use bracketed paste."
+(defun ghostty-vt-send-string (string)
+  "Send STRING to the terminal."
   (when ghostty-vt--term
-    (when paste-p
-      (process-send-string ghostty-vt--process "\e[200~"))
-    (process-send-string ghostty-vt--process string)
-    (when paste-p
-      (process-send-string ghostty-vt--process "\e[201~"))))
+    (process-send-string ghostty-vt--process string)))
 
 (defun ghostty-vt--self-insert ()
   (interactive)
@@ -159,12 +155,12 @@
   "Yank (paste) text into the terminal."
   (interactive "P")
   (deactivate-mark)
-  (ghostty-vt-send-string (current-kill 0 t) t))
+  (ghostty-vt-send-string (current-kill 0 t)))
 
 (defun ghostty-vt-yank-pop (&optional arg)
   "Yank the next entry in the kill ring."
   (interactive "p")
-  (ghostty-vt-send-string (current-kill (or arg 1)) t))
+  (ghostty-vt-send-string (current-kill (or arg 1))))
 
 (defun ghostty-vt-yank-pop-dwim (&optional arg)
   "Context-aware yank-pop."

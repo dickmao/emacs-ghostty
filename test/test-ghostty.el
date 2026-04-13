@@ -113,7 +113,6 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
     (let ((start (point)))
       (call-interactively #'ghostty-vt-yank)
       (accept-process-output ghostty-vt--process 0.1)
-      (message "%S" (buffer-string))
       (goto-char start)
       (should (looking-at-p "quick"))
       (setq last-command 'ghostty-vt-yank)
