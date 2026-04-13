@@ -39,6 +39,13 @@ $(GHOSTTY_OUT)/lib/libghostty-vt.so: $(GHOSTTY_SRC)/.git $(ZIGSRC)
 ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.so $(CSRC)
 	$(BEAR) $(CC) $(CFLAGS) -shared -o $@ $(CSRC) $(LDFLAGS)
 
+.PHONY: bump-mitch
+bump-mitch:
+	git -C $(GHOSTTY_SRC) fetch --tags --force origin
+	git -C $(GHOSTTY_SRC) checkout tip
+	git add $(GHOSTTY_SRC)
+	git commit -m "bump ghostty to tip"
+
 .PHONY: run
 run: compile
 	$(if $(DEBUG),DEBUGINFOD_URLS= gdb --args) $(EMACS) -Q -L $(CURDIR) -l ghostty-vt --eval "(setq debug-on-error t)" -f ghostty-vt
