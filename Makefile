@@ -3,6 +3,7 @@ EMACS ?= emacs
 CC    ?= cc
 ELSRC := $(shell git ls-files *.el)
 TESTSRC := $(shell git ls-files test/*.el)
+INSTALLDIR ?= package-user-dir
 
 GHOSTTY_SRC := vendor/ghostty
 GHOSTTY_OUT := $(GHOSTTY_SRC)/zig-out
@@ -76,7 +77,7 @@ dist: dist-clean ghostty-vt-module.so
 
 .PHONY: install
 install:
-	$(call install-recipe,package-user-dir)
+	$(call install-recipe,$(INSTALLDIR))
 
 define install-recipe
 	$(MAKE) dist
