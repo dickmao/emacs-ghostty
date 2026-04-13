@@ -1,6 +1,8 @@
 -------
 Install
 -------
+Your default zig needs to be version 0.15.2.  I don't make the rules.
+
 git clone https://github.com/dickmao/emacs-ghostty.git
 make -C emacs-ghostty install
 
