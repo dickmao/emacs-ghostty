@@ -43,11 +43,6 @@
   :type 'integer
   :group 'ghostty-vt)
 
-(defcustom ghostty-vt-copy-trim nil
-  "Convert screenwidth-spanning whitespace to simple newline."
-  :type 'boolean
-  :group 'ghostty-vt)
-
 (defvar-local ghostty-vt--term nil)
 (defvar-local ghostty-vt--process nil)
 (defvar-local ghostty-vt--cursor-overlay nil)
@@ -63,13 +58,6 @@
     kp-0 kp-1 kp-2 kp-3 kp-4 kp-5 kp-6 kp-7 kp-8 kp-9
     kp-add kp-subtract kp-multiply kp-divide kp-equal
     kp-decimal kp-separator kp-enter))
-
-(defun next-line-add-ok ()
-  (if (save-excursion (end-of-line) (eobp))
-      (let (abbrev-mode)
-	(end-of-line)
-	(insert "\n"))
-    (vertical-motion 1)))
 
 (defun ghostty-vt--redraw ()
   (let ((inhibit-read-only t))
@@ -176,38 +164,14 @@
 (defun ghostty-vt-yank-pop (&optional arg)
   "Yank the next entry in the kill ring."
   (interactive "p")
-  (unless (memq last-command '(ghostty-vt-yank ghostty-vt-yank-pop))
-    (user-error "Previous command was not a yank"))
   (ghostty-vt-send-string (current-kill (or arg 1)) t))
 
 (defun ghostty-vt-yank-pop-dwim (&optional arg)
   "Context-aware yank-pop."
   (interactive "p")
-  (if (memq last-command '(ghostty-vt-yank ghostty-vt-yank-pop))
+  (if (memq last-command '(ghostty-vt-yank ghostty-vt-yank-pop-dwim))
       (ghostty-vt-yank-pop arg)
     (ghostty-vt--self-insert)))
-
-(defun ghostty-vt-trimming-kill-ring-save (beg end &optional region)
-  "Kill-ring-save, trimming screenwidth-spanning whitespace."
-  (interactive (list (mark) (point) 'region))
-  (let ((region-extract-function
-         (lambda (&rest _args)
-           (string-join
-            (save-excursion
-              (goto-char beg)
-              (cl-loop with width = (window-width)
-                       for opoint = (point)
-                       while (< opoint end)
-                       do (goto-char (min end (line-end-position) (+ opoint width)))
-                       collect (buffer-substring-no-properties
-                                opoint (max (save-excursion
-                                              (skip-chars-backward " \t")
-                                              (point))
-                                            opoint))
-                       when (= (point) (line-end-position))
-                       do (forward-char)))
-            "\n"))))
-    (kill-ring-save beg end region)))
 
 (defun ghostty-vt--prefix-keys ()
   "Return prefix keys that ghostty-vt should not intercept."
@@ -285,9 +249,6 @@
     (define-key map (kbd "C-m") #'ghostty-vt-copy-mode-done)
     (define-key map (kbd "C-c C-n") #'ghostty-vt-next-prompt)
     (define-key map (kbd "C-c C-p") #'ghostty-vt-previous-prompt)
-    (when ghostty-vt-copy-trim
-      (dolist (key (where-is-internal #'kill-ring-save))
-        (define-key map key #'ghostty-vt-trimming-kill-ring-save)))
     map))
 
 (define-minor-mode ghostty-vt-copy-mode

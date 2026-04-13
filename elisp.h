@@ -6,6 +6,7 @@
 extern emacs_value Qt;
 extern emacs_value Qnil;
 extern emacs_value Qface;
+extern emacs_value Qnoninteractive;
 extern emacs_value Finsert;
 extern emacs_value Ferase_buffer;
 extern emacs_value Fgoto_char;
@@ -19,7 +20,6 @@ extern emacs_value Fline_beginning_position;
 extern emacs_value Fline_end_position;
 extern emacs_value Fvertical_motion;
 extern emacs_value Fwindow_width;
-extern emacs_value Fnext_line_add_ok;
 extern emacs_value Fput_text_property;
 extern emacs_value Fmake_overlay;
 extern emacs_value Fmove_overlay;

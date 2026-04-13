@@ -3,6 +3,7 @@
 emacs_value Qt;
 emacs_value Qnil;
 emacs_value Qface;
+emacs_value Qnoninteractive;
 emacs_value Finsert;
 emacs_value Ferase_buffer;
 emacs_value Fgoto_char;
@@ -16,7 +17,6 @@ emacs_value Fline_beginning_position;
 emacs_value Fline_end_position;
 emacs_value Fvertical_motion;
 emacs_value Fwindow_width;
-emacs_value Fnext_line_add_ok;
 emacs_value Fput_text_property;
 emacs_value Fmake_overlay;
 emacs_value Fmove_overlay;
@@ -55,6 +55,7 @@ void elisp_init(emacs_env *env) {
   G(Qt,                 "t");
   G(Qnil,               "nil");
   G(Qface,              "face");
+  G(Qnoninteractive,    "noninteractive");
   G(Finsert,            "insert");
   G(Ferase_buffer,      "erase-buffer");
   G(Fgoto_char,         "goto-char");
@@ -68,7 +69,6 @@ void elisp_init(emacs_env *env) {
   G(Fline_end_position, "line-end-position");
   G(Fvertical_motion,   "vertical-motion");
   G(Fwindow_width,      "window-width");
-  G(Fnext_line_add_ok,  "next-line-add-ok");
   G(Fput_text_property, "put-text-property");
   G(Fmake_overlay,      "make-overlay");
   G(Fmove_overlay,      "move-overlay");

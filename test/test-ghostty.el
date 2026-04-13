@@ -73,14 +73,16 @@
 	   do (prin1 (buffer-string))
 	   finally (should (test-ghostty/at-prompt))))
 
-;; (ert-deftest basic ()
-;;   (test-ghostty/with-session
-;;     (should (eq major-mode 'ghostty-vt-mode))))
+(ert-deftest basic ()
+  (test-ghostty/with-session
+    (should (eq major-mode 'ghostty-vt-mode))))
 
 (ert-deftest wrap ()
+  "noninteractive will always elide every 81st character in continued line,
+so x3 cannot be a multiple of window-width, else it'll elide the final newline."
   (test-ghostty/with-session
     (should (= (window-width) ghostty-vt-min-window-width))
-    (let* ((x3 (make-string (* 1 (window-width)) ?x)))
+    (let ((x3 (make-string (1+ (* 3 (window-width))) ?x)))
       (test-ghostty/run (format "echo %s" x3))
       (save-excursion
 	(forward-line -1)
@@ -88,35 +90,37 @@
 			  (line-beginning-position) (line-end-position))))
 	  (should (equal pure-text x3))))
       (call-interactively #'ghostty-vt-copy-mode)
-      ;; (should (equal (buffer-substring-no-properties
-      ;; 		      (line-beginning-position) (point))
-      ;; 		     (concat x3 test-ghostty/prompt)))
-      )))
+      (save-excursion
+	(forward-line -1)
+	(let ((pure-text (buffer-substring-no-properties
+			  (line-beginning-position) (line-end-position))))
+	  (should (equal pure-text x3)))))))
 
-;; (ert-deftest yank-pop ()
-;;   (test-ghostty/with-session
-;;     (should (zerop (length kill-ring)))
-;;     (should (test-ghostty/at-prompt))
-;;     (test-ghostty/run (format "echo the quick brown fox"))
-;;     (call-interactively #'ghostty-vt-copy-mode)
-;;     (re-search-backward (regexp-quote "brown"))
-;;     (copy-region-as-kill (point) (+ (point) (length "brown")))
-;;     (re-search-backward (regexp-quote "quick"))
-;;     (copy-region-as-kill (point) (+ (point) (length "quick")))
-;;     (call-interactively #'ghostty-vt-copy-mode)
-;;     (should (test-ghostty/at-prompt))
-;;     ;; i don't know why save-excursion does not work
-;;     ;; maybe it's a paste thing
-;;     (let ((start (ghostty-vt-reset-cursor-point)))
-;;       (call-interactively #'ghostty-vt-yank)
-;;       (accept-process-output ghostty-vt--process 0.1)
-;;       (goto-char start)
-;;       (should (looking-at (regexp-quote "quick")))
-;;       (setq last-command 'ghostty-vt-yank)
-;;       (call-interactively #'ghostty-vt-yank-pop-dwim)
-;;       (accept-process-output ghostty-vt--process 0.1)
-;;       (goto-char start)
-;;       (should (looking-at (regexp-quote "brown"))))))
+(ert-deftest yank-pop ()
+  (test-ghostty/with-session
+    (should (zerop (length kill-ring)))
+    (should (test-ghostty/at-prompt))
+    (test-ghostty/run (format "echo the quick brown fox"))
+    (call-interactively #'ghostty-vt-copy-mode)
+    (re-search-backward (regexp-quote "brown"))
+    (copy-region-as-kill (point) (+ (point) (length "brown")))
+    (re-search-backward (regexp-quote "quick"))
+    (copy-region-as-kill (point) (+ (point) (length "quick")))
+    (call-interactively #'ghostty-vt-copy-mode)
+    (should (test-ghostty/at-prompt))
+    ;; i don't know why save-excursion does not work
+    ;; maybe it's a paste thing
+    (let ((start (point)))
+      (call-interactively #'ghostty-vt-yank)
+      (accept-process-output ghostty-vt--process 0.1)
+      (goto-char start)
+      (should (looking-at-p "quick"))
+      (setq last-command 'ghostty-vt-yank)
+      (call-interactively #'ghostty-vt-yank-pop-dwim)
+      (accept-process-output ghostty-vt--process 0.1)
+      (should (overlayp ghostty-vt--cursor-overlay))
+      (goto-char start)
+      (should (looking-at-p "quickbrown")))))
 
 (provide 'test-ghostty)
 ;;; test-ghostty.el ends here

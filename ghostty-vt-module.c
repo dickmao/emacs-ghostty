@@ -319,7 +319,6 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
       GhosttyRow raw_row;
       ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_RAW, &raw_row);
       insert_newline_unless_wrap(env, raw_row);
-
       bool clean = false;
       ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean);
     }
@@ -358,6 +357,7 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
       env->funcall(env, Foverlay_put, 3, (emacs_value[]){overlay, Qface, face});
       env->funcall(env, Fgoto_char, 1, &restore);
     }
+
   }
   /* delete rest */
   emacs_value beg = env->funcall(env, Fpoint, 0, NULL);
