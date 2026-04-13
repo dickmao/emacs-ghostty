@@ -89,5 +89,5 @@ define install-recipe
 endef
 
 .PHONY: test
-test:
+test: compile
 	$(EMACS) --batch -L . -L test $(patsubst %.el,-l %,$(notdir $(TESTSRC))) -f ert-run-tests-batch

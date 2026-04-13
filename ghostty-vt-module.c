@@ -159,6 +159,15 @@ static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool
   }
 }
 
+static void insert_newline_unless_wrap(emacs_env *env, GhosttyRow row) {
+  bool wrap = false;
+  ghostty_row_get(row, GHOSTTY_ROW_DATA_WRAP, &wrap);
+  if (!wrap) {
+    emacs_value nl = env->make_string(env, "\n", 1);
+    env->funcall(env, Finsert, 1, &nl);
+  }
+}
+
 static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
 			  const size_t row, const uint16_t cols,
 			  const GhosttyRenderStateColors *colors) {
@@ -195,14 +204,8 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
   }
   /* residual padding is discarded */
   flush_default(env, buf, buf_n); buf_n = 0;
-  if (q_row == GHOSTTY_SUCCESS) {
-    bool wrap = false;
-    ghostty_row_get(grid_row, GHOSTTY_ROW_DATA_WRAP, &wrap);
-    if (!wrap) {
-      emacs_value nl = env->make_string(env, "\n", 1);
-      env->funcall(env, Finsert, 1, &nl);
-    }
-  }
+  if (q_row == GHOSTTY_SUCCESS)
+    insert_newline_unless_wrap(env, grid_row);
 }
 
 /* ghostty-vt--new(rows cols scrollback) -> user-ptr */
@@ -315,12 +318,7 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
 
       GhosttyRow raw_row;
       ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_RAW, &raw_row);
-      bool wrap = false;
-      ghostty_row_get(raw_row, GHOSTTY_ROW_DATA_WRAP, &wrap);
-      if (!wrap) {
-	emacs_value nl = env->make_string(env, "\n", 1);
-	env->funcall(env, Finsert, 1, &nl);
-      }
+      insert_newline_unless_wrap(env, raw_row);
 
       bool clean = false;
       ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean);
