@@ -96,7 +96,7 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
 			  (line-beginning-position) (line-end-position))))
 	  (should (equal pure-text x3)))))))
 
-(ert-deftest yank-pop ()
+(ert-deftest contextual-yank-pop ()
   (test-ghostty/with-session
     (should (zerop (length kill-ring)))
     (should (test-ghostty/at-prompt))
@@ -108,19 +108,36 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
     (copy-region-as-kill (point) (+ (point) (length "quick")))
     (call-interactively #'ghostty-vt-copy-mode)
     (should (test-ghostty/at-prompt))
-    ;; i don't know why save-excursion does not work
-    ;; maybe it's a paste thing
+    ;; redraw locks point to cursor but save-excursion should still
+    ;; work, right?  Dunno why it doesn't.
     (let ((start (point)))
       (call-interactively #'ghostty-vt-yank)
-      (accept-process-output ghostty-vt--process 0.1)
       (goto-char start)
       (should (looking-at-p "quick"))
       (setq last-command 'ghostty-vt-yank)
       (call-interactively #'ghostty-vt-yank-pop-dwim)
-      (accept-process-output ghostty-vt--process 0.1)
-      (should (overlayp ghostty-vt--cursor-overlay))
       (goto-char start)
-      (should (looking-at-p "quickbrown")))))
+      (should (looking-at-p "brown"))
+      (ghostty-vt-send-key "\C-a")
+      (ghostty-vt-send-string "quick ")
+      (should (looking-at-p "brown"))
+      (ghostty-vt-send-key "\C-a")
+      (should (looking-at-p "quick brown"))
+      (ghostty-vt-send-key "f" nil t nil) ;M-f
+      (should (looking-at-p " brown"))
+      (ghostty-vt-send-key "d" nil t nil) ;M-d
+      (ghostty-vt-send-key "\C-a")
+      (ghostty-vt-send-key "\C-k")
+      (should-not (thing-at-point 'word))
+      (ghostty-vt-send-key "\C-y")
+      (save-excursion
+	(goto-char start)
+	(prin1 (buffer-string))
+	(should (looking-at-p "quick")))
+      (ghostty-vt-send-key "y" nil t nil) ;M-y
+      (save-excursion
+	(goto-char start)
+	(should (looking-at-p " brown"))))))
 
 (provide 'test-ghostty)
 ;;; test-ghostty.el ends here

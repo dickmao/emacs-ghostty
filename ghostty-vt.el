@@ -125,7 +125,6 @@
   (let ((last-command-event (aref (kbd "C-_") 0)))
     (call-interactively #'ghostty-vt--self-insert)))
 
-
 (defun ghostty-vt-next-prompt (n)
   "Move to end of Nth next prompt."
   (interactive "p")
@@ -152,21 +151,24 @@
   (ghostty-vt-send-key "l" nil nil t))
 
 (defun ghostty-vt-yank (&optional _arg)
-  "Yank (paste) text into the terminal."
+  "C-c C-y"
   (interactive "P")
   (deactivate-mark)
   (ghostty-vt-send-string (current-kill 0 t)))
 
 (defun ghostty-vt-yank-pop (&optional arg)
-  "Yank the next entry in the kill ring."
+  "C-c M-y"
   (interactive "p")
+  (ghostty-vt--alias-undo)
   (ghostty-vt-send-string (current-kill (or arg 1))))
 
 (defun ghostty-vt-yank-pop-dwim (&optional arg)
-  "Context-aware yank-pop."
+  "M-y"
   (interactive "p")
-  (if (memq last-command '(ghostty-vt-yank ghostty-vt-yank-pop-dwim))
-      (ghostty-vt-yank-pop arg)
+  (if (memq last-command '(ghostty-vt-yank ghostty-vt-yank-pop))
+      (let ((current-prefix-arg arg))
+	(call-interactively #'ghostty-vt-yank-pop)
+	(setq this-command 'ghostty-vt-yank-pop))
     (ghostty-vt--self-insert)))
 
 (defun ghostty-vt--prefix-keys ()

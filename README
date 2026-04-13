@@ -7,6 +7,8 @@ make -C emacs-ghostty install
 -----
 Usage
 -----
+M-x ghostty-vt
+
 C-y pastes from the shell's kill ring (subsequent M-y from same).
 
 C-c C-y pastes from emacs's kill ring (subsequent M-y from same).
