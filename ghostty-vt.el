@@ -76,7 +76,8 @@
 
 (defun ghostty-vt--send-event (event)
   (let* ((modifiers (event-modifiers event))
-         (shift (memq 'shift modifiers))
+         (shift (or (memq 'shift modifiers)
+		    (memq (event-basic-type event) '(backtab iso-lefttab))))
          (meta (memq 'meta modifiers))
          (ctrl (memq 'control modifiers))
          (raw-key (event-basic-type event)))
