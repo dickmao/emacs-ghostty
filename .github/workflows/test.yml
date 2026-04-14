@@ -44,3 +44,5 @@ jobs:
       run: |
         make test
         make install
+        # verify ghostty-vt-module.so loads correctly from install dir
+        cd $(mktemp -d) && emacs --batch -l package -f package-initialize -l ghostty-vt

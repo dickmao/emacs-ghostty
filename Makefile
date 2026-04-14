@@ -18,8 +18,7 @@ endif
 
 CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC -g \
           -I$(GHOSTTY_OUT)/include
-LDFLAGS := -L$(GHOSTTY_OUT)/lib -lghostty-vt \
-           -Wl,-rpath,$(abspath $(GHOSTTY_OUT)/lib)
+LDFLAGS := $(GHOSTTY_OUT)/lib/libghostty-vt.a
 
 .PHONY: compile
 compile: ghostty-vt-module.so
@@ -34,10 +33,10 @@ compile: ghostty-vt-module.so
 $(GHOSTTY_SRC)/.git:
 	git submodule update --init --recursive $(GHOSTTY_SRC)
 
-$(GHOSTTY_OUT)/lib/libghostty-vt.so: $(GHOSTTY_SRC)/.git $(ZIGSRC)
+$(GHOSTTY_OUT)/lib/libghostty-vt.a: $(GHOSTTY_SRC)/.git $(ZIGSRC)
 	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast
 
-ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.so $(CSRC)
+ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.a $(CSRC)
 	$(BEAR) $(CC) $(CFLAGS) -shared -o $@ $(CSRC) $(LDFLAGS)
 
 .PHONY: bump-mitch
@@ -54,6 +53,9 @@ run: compile
 .PHONY: clean
 clean:
 	git clean -dfX
+
+.PHONY: veryclean
+veryclean: clean
 	git -C $(GHOSTTY_SRC) clean -dfX
 
 .PHONY: dist-clean
