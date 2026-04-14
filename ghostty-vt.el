@@ -66,7 +66,8 @@
       (set-window-start win (point-min)))))
 
 (defun ghostty-vt--filter (proc data)
-  (when-let ((buf (buffer-live-p (process-buffer proc))))
+  (when-let ((buf (process-buffer proc))
+	     (live-p (buffer-live-p buf)))
     (with-current-buffer buf
       (if ghostty-vt-copy-mode
           (push data ghostty-vt--pending)
