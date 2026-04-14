@@ -375,7 +375,7 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
 /* ghostty-vt--prepend-history(term)
    Reads all scrollback rows from ghostty and inserts them at the top of
    the current Emacs buffer, oldest row first.
-   Returns the number of lines prepended. */
+   Returns point following insertion. */
 static emacs_value Fghostty_vt__prepend_history(emacs_env *env, ptrdiff_t nargs,
 						emacs_value args[], void *data) {
   (void)nargs; (void)data;

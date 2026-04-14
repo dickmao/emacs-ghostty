@@ -71,7 +71,7 @@
     (with-current-buffer buf
       (if ghostty-vt-copy-mode
           (push data ghostty-vt--pending)
-        (ghostty-vt--write ghostty-vt--term data)
+        (ghostty-vt--write ghostty-vt--term data) ;parks partials
         (ghostty-vt--redraw)))))
 
 (defun ghostty-vt--send-event (event)
