@@ -19,6 +19,9 @@ endif
 CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC -g \
           -I$(GHOSTTY_OUT)/include
 LDFLAGS := $(GHOSTTY_OUT)/lib/libghostty-vt.a
+ifeq ($(shell uname),Darwin)
+  LDFLAGS += -lc++
+endif
 
 .PHONY: compile
 compile: ghostty-vt-module.so
