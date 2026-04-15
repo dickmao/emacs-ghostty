@@ -50,6 +50,7 @@
 (defvar-local ghostty-vt--pending nil)
 (defvar-local ghostty-vt--scrollback-end nil)
 (defvar-local ghostty-vt--previous-cols 0)
+(defvar-local ghostty-vt--previous-rows 0)
 
 (defconst ghostty-vt--keys
   '(return tab backtab iso-lefttab backspace escape
@@ -305,8 +306,12 @@
   (cl-destructuring-bind (cols . rows)
       (funcall window-adjust-process-window-size-function process windows)
     (setq cols (max cols ghostty-vt-min-window-width))
-    (when (/= cols ghostty-vt--previous-cols) ;suppress jumpy
-      (setq ghostty-vt--previous-cols cols)
+    ;; suppress jumpy:
+    ;; only ioctl resize if width changed or cursor fell off
+    (when (or (/= cols ghostty-vt--previous-cols)
+	      (> (abs (- rows ghostty-vt--previous-rows)) (min 3 rows)))
+      (setq ghostty-vt--previous-cols cols
+	    ghostty-vt--previous-rows rows)
       (prog1 (cons cols rows)
 	(ghostty-vt--resize ghostty-vt--term rows cols
                             (frame-char-width) (frame-char-height))))))
