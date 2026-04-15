@@ -49,6 +49,7 @@
 (defvar-local ghostty-vt-copy-mode nil)
 (defvar-local ghostty-vt--pending nil)
 (defvar-local ghostty-vt--scrollback-end nil)
+(defvar-local ghostty-vt--previous-cols 0)
 
 (defconst ghostty-vt--keys
   '(return tab backtab iso-lefttab backspace escape
@@ -301,13 +302,14 @@
       (call-interactively command))))
 
 (defun ghostty-vt--adjust-window-size (process windows)
-  (let* ((size (funcall window-adjust-process-window-size-function process windows))
-         (cols (max (car size) ghostty-vt-min-window-width))
-         (rows (cdr size)))
-    (when (and (> cols 0) (> rows 0))
-      (ghostty-vt--resize ghostty-vt--term rows cols
-                          (frame-char-width) (frame-char-height))
-      (cons cols rows))))
+  (cl-destructuring-bind (cols . rows)
+      (funcall window-adjust-process-window-size-function process windows)
+    (setq cols (max cols ghostty-vt-min-window-width))
+    (when (/= cols ghostty-vt--previous-cols) ;suppress jumpy
+      (setq ghostty-vt--previous-cols cols)
+      (prog1 (cons cols rows)
+	(ghostty-vt--resize ghostty-vt--term rows cols
+                            (frame-char-width) (frame-char-height))))))
 
 (define-derived-mode ghostty-vt-mode fundamental-mode "GhosttyVT"
   "Major mode for ghostty-vt."

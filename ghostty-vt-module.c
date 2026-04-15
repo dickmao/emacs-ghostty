@@ -357,7 +357,6 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
       env->funcall(env, Foverlay_put, 3, (emacs_value[]){overlay, Qface, face});
       env->funcall(env, Fgoto_char, 1, &restore);
     }
-
   }
   /* delete rest */
   emacs_value beg = env->funcall(env, Fpoint, 0, NULL);
