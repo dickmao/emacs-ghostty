@@ -477,6 +477,20 @@ static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
   return result;
 }
 
+/* ghostty-vt--mode-get(term mode) -> bool */
+static emacs_value Fghostty_vt__mode_get(emacs_env *env, ptrdiff_t nargs,
+					 emacs_value args[], void *data) {
+  (void)nargs; (void)data;
+  GhosttyTerm *t = term_get(env, args[0]);
+  if (!t) return Qnil;
+
+  bool enabled = false;
+  ghostty_terminal_mode_get(t->terminal,
+			    (GhosttyMode)env->extract_integer(env, args[1]),
+			    &enabled);
+  return enabled ? Qt : Qnil;
+}
+
 /* ghostty-vt--resize(term rows cols cell-width-px cell-height-px) -> nil */
 static emacs_value Fghostty_vt__resize(emacs_env *env, ptrdiff_t nargs,
                                        emacs_value args[], void *data) {
@@ -503,6 +517,7 @@ int emacs_module_init(struct emacs_runtime *ert) {
   DEFUN("ghostty-vt--render",           Fghostty_vt__render,          1, 1);
   DEFUN("ghostty-vt--encode-key",       Fghostty_vt__encode_key,      5, 5);
   DEFUN("ghostty-vt--resize",           Fghostty_vt__resize,          5, 5);
+  DEFUN("ghostty-vt--mode-get",         Fghostty_vt__mode_get,        2, 2);
   DEFUN("ghostty-vt--prepend-history",  Fghostty_vt__prepend_history, 1, 1);
 #undef DEFUN
   provide(env, "ghostty-vt-module");

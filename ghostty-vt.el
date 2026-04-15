@@ -60,10 +60,11 @@
     kp-decimal kp-separator kp-enter))
 
 (defun ghostty-vt--redraw ()
-  (let ((inhibit-read-only t))
-    (ghostty-vt--render ghostty-vt--term)
-    (dolist (win (get-buffer-window-list nil nil t))
-      (set-window-start win (point-min)))))
+  (unless (ghostty-vt--mode-get ghostty-vt--term 2026) ;flicker
+    (let ((inhibit-read-only t))
+      (ghostty-vt--render ghostty-vt--term)
+      (dolist (win (get-buffer-window-list nil nil t))
+	(set-window-start win (point-min))))))
 
 (defun ghostty-vt--filter (proc data)
   (when-let ((buf (process-buffer proc))
