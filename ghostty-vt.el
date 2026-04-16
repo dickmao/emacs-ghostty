@@ -78,8 +78,6 @@
         (ghostty-vt--redraw)))))
 
 (defun ghostty-vt--send-event (event)
-  (when (characterp event)
-    (pcase event (?\r (setq event 'return)) (?\t (setq event 'tab))))
   (let* ((modifiers (event-modifiers event))
          (shift (or (memq 'shift modifiers)
 		    (memq (event-basic-type event) '(backtab iso-lefttab))))

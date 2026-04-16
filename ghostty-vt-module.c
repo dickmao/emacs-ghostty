@@ -449,6 +449,12 @@ static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
   for (int i = 0; key_table[i].name; i++) {
     if (strcmp(keystr, key_table[i].name) == 0) { key = key_table[i].key; break; }
   }
+  /* ctrl+m = CR = Enter; ctrl+i = HT = Tab (legacy terminal aliases) */
+  if (key == GHOSTTY_KEY_UNIDENTIFIED && (mods & GHOSTTY_MODS_CTRL) && keysize - 1 == 1) {
+    char c = (char)(keystr[0] | 0x20);
+    if      (c == 'm') { key = GHOSTTY_KEY_ENTER; mods &= ~GHOSTTY_MODS_CTRL; }
+    else if (c == 'i') { key = GHOSTTY_KEY_TAB;   mods &= ~GHOSTTY_MODS_CTRL; }
+  }
   emacs_value result = env->make_string(env, "", 0);
   GhosttyKeyEvent event;
   if (ghostty_key_event_new(NULL, &event) == GHOSTTY_SUCCESS) {
