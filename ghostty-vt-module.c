@@ -96,7 +96,7 @@ static void process_cell(emacs_env *env,
                          const uint32_t *cps, size_t ncp,
                          GhosttyColorRgb fg, GhosttyColorRgb bg) {
   /* no glyph, no background -> pure padding, defer */
-  if (style->bg_color.tag == GHOSTTY_STYLE_COLOR_NONE &&
+  if (ghostty_style_is_default(style) &&
       (ncp == 0 || iswspace((wint_t)cps[0]))) {
     (*padding)++;
     return;
