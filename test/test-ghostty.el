@@ -139,6 +139,20 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
 	(goto-char start)
 	(should (looking-at-p " brown"))))))
 
+(ert-deftest trailing-whitespace ()
+  "Lines rendered from ghostty have no trailing spaces or tabs."
+  (test-ghostty/with-session
+    (test-ghostty/run "printf 'foo   \\nbar\\t\\t\\n'")
+    (save-excursion
+      (re-search-backward "^foo")
+      (should (equal (buffer-substring-no-properties
+                      (line-beginning-position) (line-end-position))
+                     "foo"))
+      (forward-line 1)
+      (should (equal (buffer-substring-no-properties
+                      (line-beginning-position) (line-end-position))
+                     "bar")))))
+
 (ert-deftest scrollback ()
   "Scrollback with wrapped lines: viewport is unchanged after copy-mode round-trip."
   (test-ghostty/with-session

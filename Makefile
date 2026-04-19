@@ -48,7 +48,7 @@ bump-mitch:
 
 .PHONY: run
 run: compile
-	$(if $(DEBUG),DEBUGINFOD_URLS= gdb --args) $(EMACS) -Q -L $(CURDIR) -l ghostty-vt --eval "(setq debug-on-error t)" -f ghostty-vt
+	$(if $(DEBUG),DEBUGINFOD_URLS= gdb --args) $(EMACS) -Q -l cl-lib -L $(CURDIR) -l ghostty-vt --eval "(setq debug-on-error t)" -f ghostty-vt
 
 .PHONY: clean
 clean:

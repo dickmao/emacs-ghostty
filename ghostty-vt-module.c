@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wctype.h>
 
 __attribute__((visibility("default"))) int plugin_is_GPL_compatible;
 
@@ -95,7 +96,8 @@ static void process_cell(emacs_env *env,
                          const uint32_t *cps, size_t ncp,
                          GhosttyColorRgb fg, GhosttyColorRgb bg) {
   /* no glyph, no background -> pure padding, defer */
-  if (ncp == 0 && style->bg_color.tag == GHOSTTY_STYLE_COLOR_NONE) {
+  if (style->bg_color.tag == GHOSTTY_STYLE_COLOR_NONE &&
+      (ncp == 0 || iswspace((wint_t)cps[0]))) {
     (*padding)++;
     return;
   }
