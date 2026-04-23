@@ -63,9 +63,9 @@ static void flush_default(emacs_env *env, char *buf, size_t n) {
   env->funcall(env, Finsert, 1, &str);
 }
 
-static void insert_styled(emacs_env *env, const char *text, size_t n,
-                          const GhosttyStyle *style,
-                          GhosttyColorRgb fg, GhosttyColorRgb bg) {
+static void flush_styled(emacs_env *env, const char *text, size_t n,
+			 const GhosttyStyle *style,
+			 GhosttyColorRgb fg, GhosttyColorRgb bg) {
   emacs_value start = env->funcall(env, Fpoint, 0, NULL);
   emacs_value str = env->make_string(env, text, (ptrdiff_t)n);
   env->funcall(env, Finsert, 1, &str);
@@ -91,23 +91,20 @@ static void insert_styled(emacs_env *env, const char *text, size_t n,
 }
 
 typedef struct {
-  char buf[MAX_ROW_BYTES];   /* pending unstyled text */
+  char buf[MAX_ROW_BYTES];
   size_t buf_n;
-  char sbuf[MAX_ROW_BYTES];  /* pending styled run */
-  size_t sbuf_n;
   int padding;
-  GhosttyStyle sty;          /* style of current styled run */
+  bool in_styled;
+  GhosttyStyle sty;
   GhosttyColorRgb fg, bg;
 } RowCtx;
 
-static void ctx_flush_styled(emacs_env *env, RowCtx *ctx) {
-  if (!ctx->sbuf_n) return;
-  insert_styled(env, ctx->sbuf, ctx->sbuf_n, &ctx->sty, ctx->fg, ctx->bg);
-  ctx->sbuf_n = 0;
-}
-
-static void ctx_flush_default(emacs_env *env, RowCtx *ctx) {
-  flush_default(env, ctx->buf, ctx->buf_n);
+static void ctx_flush(emacs_env *env, RowCtx *ctx) {
+  if (!ctx->buf_n) return;
+  if (ctx->in_styled)
+    flush_styled(env, ctx->buf, ctx->buf_n, &ctx->sty, ctx->fg, ctx->bg);
+  else
+    flush_default(env, ctx->buf, ctx->buf_n);
   ctx->buf_n = 0;
 }
 
@@ -126,14 +123,13 @@ static void process_cell(emacs_env *env, RowCtx *ctx,
                          const uint32_t *cps, size_t ncp,
                          GhosttyColorRgb fg, GhosttyColorRgb bg) {
   if (ghostty_style_is_default(style) && (ncp == 0 || iswspace((wint_t)cps[0]))) {
-    ctx_flush_styled(env, ctx);
+    if (ctx->in_styled) { ctx_flush(env, ctx); ctx->in_styled = false; }
     ctx->padding++;
     return;
   }
-  flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding);
-  ctx->padding = 0;
   if (ghostty_style_is_default(style)) {
-    ctx_flush_styled(env, ctx);
+    if (ctx->in_styled) { ctx_flush(env, ctx); ctx->in_styled = false; }
+    flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding); ctx->padding = 0;
     if (ncp == 0) {
       if (ctx->buf_n < sizeof ctx->buf) ctx->buf[ctx->buf_n++] = ' ';
     } else {
@@ -141,20 +137,21 @@ static void process_cell(emacs_env *env, RowCtx *ctx,
     }
     return;
   }
-  ctx_flush_default(env, ctx);
   char cell[64]; size_t cell_n;
   if (ncp == 0) { cell[0] = ' '; cell_n = 1; }
   else          { cell_n = encode_cps(cps, ncp, cell, sizeof cell); }
-  if (ctx->sbuf_n && style_run_eq(&ctx->sty, ctx->fg, ctx->bg, style, fg, bg)) {
-    if (ctx->sbuf_n + cell_n <= sizeof ctx->sbuf) {
-      memcpy(ctx->sbuf + ctx->sbuf_n, cell, cell_n);
-      ctx->sbuf_n += cell_n;
+  if (ctx->in_styled && style_run_eq(&ctx->sty, ctx->fg, ctx->bg, style, fg, bg)) {
+    if (ctx->buf_n + cell_n <= sizeof ctx->buf) {
+      memcpy(ctx->buf + ctx->buf_n, cell, cell_n);
+      ctx->buf_n += cell_n;
     }
   } else {
-    ctx_flush_styled(env, ctx);
+    flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding); ctx->padding = 0;
+    ctx_flush(env, ctx);
+    ctx->in_styled = true;
     ctx->sty = *style; ctx->fg = fg; ctx->bg = bg;
-    memcpy(ctx->sbuf, cell, cell_n);
-    ctx->sbuf_n = cell_n;
+    memcpy(ctx->buf, cell, cell_n);
+    ctx->buf_n = cell_n;
   }
 }
 
@@ -180,8 +177,7 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
     ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg);
     process_cell(env, &ctx, &style, cps, ncp, fg, bg);
   }
-  ctx_flush_styled(env, &ctx);
-  flush_default(env, ctx.buf, ctx.buf_n);
+  ctx_flush(env, &ctx);
 }
 
 static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool *has,
@@ -242,7 +238,7 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
     resolve_style_color(style.bg_color, &bg, &unused, colors);
     process_cell(env, &ctx, &style, cps, ncp, fg, bg);
   }
-  ctx_flush_styled(env, &ctx);
+  ctx_flush(env, &ctx);
   GhosttyRow grid_row;
   bool wrap = false;
   if (ghostty_grid_ref_row(&ref, &grid_row) == GHOSTTY_SUCCESS)
