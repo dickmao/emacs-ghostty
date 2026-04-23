@@ -175,19 +175,20 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
 			  const GhosttyRenderStateColors *colors) {
   char buf[MAX_ROW_BYTES]; size_t buf_n = 0;
   int padding = 0;
-  GhosttyResult q_row = GHOSTTY_NO_VALUE;
   GhosttyRow grid_row;
 
+  /* Pin the page node once per row; all columns share the same node/y. */
+  GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
+  GhosttyPoint pt0 = {
+    .tag = GHOSTTY_POINT_TAG_HISTORY,
+    .value = { .coordinate = { .x = 0, .y = (uint32_t)row } }
+  };
+  if (ghostty_terminal_grid_ref(terminal, pt0, &ref) != GHOSTTY_SUCCESS)
+    return;
+  bool have_row = (ghostty_grid_ref_row(&ref, &grid_row) == GHOSTTY_SUCCESS);
+
   for (uint16_t col = 0; col < cols; col++) {
-    GhosttyPoint pt = {
-      .tag = GHOSTTY_POINT_TAG_HISTORY,
-      .value = { .coordinate = { .x = col, .y = (uint32_t)row } }
-    };
-    GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
-    if (ghostty_terminal_grid_ref(terminal, pt, &ref) != GHOSTTY_SUCCESS)
-      continue;
-    if (q_row != GHOSTTY_SUCCESS)
-      q_row = ghostty_grid_ref_row(&ref, &grid_row);
+    ref.x = col;
     GhosttyCell cell = 0;
     ghostty_grid_ref_cell(&ref, &cell);
     int wide = GHOSTTY_CELL_WIDE_NARROW;
@@ -204,9 +205,8 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
     resolve_style_color(style.bg_color, &bg, &unused, colors);
     process_cell(env, buf, &buf_n, sizeof buf, &padding, &style, cps, ncp, fg, bg);
   }
-  /* residual padding is discarded */
   flush_default(env, buf, buf_n); buf_n = 0;
-  if (q_row == GHOSTTY_SUCCESS)
+  if (have_row)
     insert_newline_unless_wrap(env, grid_row);
 }
 
