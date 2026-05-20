@@ -94,7 +94,6 @@ typedef struct {
   char buf[MAX_ROW_BYTES];
   size_t buf_n;
   int padding;
-  bool in_styled;
   GhosttyStyle sty;
   uint32_t style_id;
   GhosttyColorRgb fg, bg;
@@ -102,7 +101,7 @@ typedef struct {
 
 static void ctx_flush(emacs_env *env, RowCtx *ctx) {
   if (!ctx->buf_n) return;
-  if (ctx->in_styled)
+  if (ctx->style_id)
     flush_styled(env, ctx->buf, ctx->buf_n, &ctx->sty, ctx->fg, ctx->bg);
   else
     flush_default(env, ctx->buf, ctx->buf_n);
@@ -114,9 +113,9 @@ static void process_cell(emacs_env *env, RowCtx *ctx,
                          const uint32_t *cps, size_t ncp,
                          GhosttyColorRgb fg, GhosttyColorRgb bg) {
   if (style_id == 0) {
-    if (ctx->in_styled) {
+    if (ctx->style_id) {
       ctx_flush(env, ctx);
-      ctx->in_styled = false;
+      ctx->style_id = 0;
     }
     if (ncp == 0 || iswspace((wint_t)cps[0])) {
       ctx->padding++;
@@ -136,7 +135,7 @@ static void process_cell(emacs_env *env, RowCtx *ctx,
   } else {
     cell_n = encode_cps(cps, ncp, cell, sizeof cell);
   }
-  if (ctx->in_styled && ctx->style_id == style_id) {
+  if (ctx->style_id == style_id) {
     if (ctx->buf_n + cell_n <= sizeof ctx->buf) {
       memcpy(ctx->buf + ctx->buf_n, cell, cell_n);
       ctx->buf_n += cell_n;
@@ -144,7 +143,6 @@ static void process_cell(emacs_env *env, RowCtx *ctx,
   } else {
     flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding); ctx->padding = 0;
     ctx_flush(env, ctx);
-    ctx->in_styled = true;
     ctx->style_id = style_id; ctx->sty = *style; ctx->fg = fg; ctx->bg = bg;
     memcpy(ctx->buf, cell, cell_n);
     ctx->buf_n = cell_n;
@@ -170,7 +168,7 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
     ghostty_cell_get(raw_cell, GHOSTTY_CELL_DATA_STYLE_ID, &style_id);
     GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
     GhosttyColorRgb fg = {0}, bg = {0};
-    if (style_id != 0 && (!ctx.in_styled || ctx.style_id != style_id)) {
+    if (style_id && ctx.style_id != style_id) {
       ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style);
       ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &fg);
       ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg);
