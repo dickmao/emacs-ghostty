@@ -113,24 +113,29 @@ static void process_cell(emacs_env *env, RowCtx *ctx,
                          uint32_t style_id, const GhosttyStyle *style,
                          const uint32_t *cps, size_t ncp,
                          GhosttyColorRgb fg, GhosttyColorRgb bg) {
-  if (style_id == 0 && (ncp == 0 || iswspace((wint_t)cps[0]))) {
-    if (ctx->in_styled) { ctx_flush(env, ctx); ctx->in_styled = false; }
-    ctx->padding++;
-    return;
-  }
   if (style_id == 0) {
-    if (ctx->in_styled) { ctx_flush(env, ctx); ctx->in_styled = false; }
-    flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding); ctx->padding = 0;
-    if (ncp == 0) {
-      if (ctx->buf_n < sizeof ctx->buf) ctx->buf[ctx->buf_n++] = ' ';
+    if (ctx->in_styled) {
+      ctx_flush(env, ctx);
+      ctx->in_styled = false;
+    }
+    if (ncp == 0 || iswspace((wint_t)cps[0])) {
+      ctx->padding++;
     } else {
-      ctx->buf_n += encode_cps(cps, ncp, ctx->buf + ctx->buf_n, sizeof ctx->buf - ctx->buf_n);
+      flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding);
+      ctx->padding = 0;
+      ctx->buf_n += encode_cps(cps, ncp, ctx->buf + ctx->buf_n,
+			       sizeof ctx->buf - ctx->buf_n);
     }
     return;
   }
+
   char cell[64]; size_t cell_n;
-  if (ncp == 0) { cell[0] = ' '; cell_n = 1; }
-  else          { cell_n = encode_cps(cps, ncp, cell, sizeof cell); }
+  if (ncp == 0) {
+    cell[0] = ' ';
+    cell_n = 1;
+  } else {
+    cell_n = encode_cps(cps, ncp, cell, sizeof cell);
+  }
   if (ctx->in_styled && ctx->style_id == style_id) {
     if (ctx->buf_n + cell_n <= sizeof ctx->buf) {
       memcpy(ctx->buf + ctx->buf_n, cell, cell_n);
