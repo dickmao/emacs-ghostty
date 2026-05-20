@@ -96,6 +96,7 @@ typedef struct {
   int padding;
   bool in_styled;
   GhosttyStyle sty;
+  uint32_t style_id;
   GhosttyColorRgb fg, bg;
 } RowCtx;
 
@@ -108,26 +109,16 @@ static void ctx_flush(emacs_env *env, RowCtx *ctx) {
   ctx->buf_n = 0;
 }
 
-static bool style_run_eq(const GhosttyStyle *a, GhosttyColorRgb fga, GhosttyColorRgb bga,
-                         const GhosttyStyle *b, GhosttyColorRgb fgb, GhosttyColorRgb bgb) {
-  if (a->fg_color.tag != b->fg_color.tag || a->bg_color.tag != b->bg_color.tag) return false;
-  if (a->fg_color.tag != GHOSTTY_STYLE_COLOR_NONE && memcmp(&fga, &fgb, sizeof fga)) return false;
-  if (a->bg_color.tag != GHOSTTY_STYLE_COLOR_NONE && memcmp(&bga, &bgb, sizeof bga)) return false;
-  return a->bold == b->bold && a->faint == b->faint && a->italic == b->italic
-      && a->inverse == b->inverse && a->strikethrough == b->strikethrough
-      && a->overline == b->overline && a->underline == b->underline;
-}
-
 static void process_cell(emacs_env *env, RowCtx *ctx,
-                         const GhosttyStyle *style,
+                         uint32_t style_id, const GhosttyStyle *style,
                          const uint32_t *cps, size_t ncp,
                          GhosttyColorRgb fg, GhosttyColorRgb bg) {
-  if (ghostty_style_is_default(style) && (ncp == 0 || iswspace((wint_t)cps[0]))) {
+  if (style_id == 0 && (ncp == 0 || iswspace((wint_t)cps[0]))) {
     if (ctx->in_styled) { ctx_flush(env, ctx); ctx->in_styled = false; }
     ctx->padding++;
     return;
   }
-  if (ghostty_style_is_default(style)) {
+  if (style_id == 0) {
     if (ctx->in_styled) { ctx_flush(env, ctx); ctx->in_styled = false; }
     flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding); ctx->padding = 0;
     if (ncp == 0) {
@@ -140,7 +131,7 @@ static void process_cell(emacs_env *env, RowCtx *ctx,
   char cell[64]; size_t cell_n;
   if (ncp == 0) { cell[0] = ' '; cell_n = 1; }
   else          { cell_n = encode_cps(cps, ncp, cell, sizeof cell); }
-  if (ctx->in_styled && style_run_eq(&ctx->sty, ctx->fg, ctx->bg, style, fg, bg)) {
+  if (ctx->in_styled && ctx->style_id == style_id) {
     if (ctx->buf_n + cell_n <= sizeof ctx->buf) {
       memcpy(ctx->buf + ctx->buf_n, cell, cell_n);
       ctx->buf_n += cell_n;
@@ -149,7 +140,7 @@ static void process_cell(emacs_env *env, RowCtx *ctx,
     flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding); ctx->padding = 0;
     ctx_flush(env, ctx);
     ctx->in_styled = true;
-    ctx->sty = *style; ctx->fg = fg; ctx->bg = bg;
+    ctx->style_id = style_id; ctx->sty = *style; ctx->fg = fg; ctx->bg = bg;
     memcpy(ctx->buf, cell, cell_n);
     ctx->buf_n = cell_n;
   }
@@ -166,16 +157,20 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
       continue;
     uint32_t grapheme_len = 0;
     ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &grapheme_len);
-    GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
-    ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style);
     uint32_t cps[16] = {0};
     size_t ncp = grapheme_len < 16 ? grapheme_len : 16;
     if (ncp > 0)
       ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, cps);
+    uint32_t style_id = 0;
+    ghostty_cell_get(raw_cell, GHOSTTY_CELL_DATA_STYLE_ID, &style_id);
+    GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
     GhosttyColorRgb fg = {0}, bg = {0};
-    ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &fg);
-    ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg);
-    process_cell(env, &ctx, &style, cps, ncp, fg, bg);
+    if (style_id != 0 && (!ctx.in_styled || ctx.style_id != style_id)) {
+      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style);
+      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &fg);
+      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg);
+    }
+    process_cell(env, &ctx, style_id, &style, cps, ncp, fg, bg);
   }
   ctx_flush(env, &ctx);
 }
@@ -228,15 +223,19 @@ static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
     ghostty_cell_get(cell, GHOSTTY_CELL_DATA_WIDE, &wide);
     if (wide == GHOSTTY_CELL_WIDE_SPACER_TAIL || wide == GHOSTTY_CELL_WIDE_SPACER_HEAD)
       continue;
+    uint32_t style_id = 0;
+    ghostty_cell_get(cell, GHOSTTY_CELL_DATA_STYLE_ID, &style_id);
     GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
-    ghostty_grid_ref_style(&ref, &style);
+    GhosttyColorRgb fg = {0}, bg = {0};
+    if (style_id != 0) {
+      ghostty_grid_ref_style(&ref, &style);
+      bool unused = false;
+      resolve_style_color(style.fg_color, &fg, &unused, colors);
+      resolve_style_color(style.bg_color, &bg, &unused, colors);
+    }
     uint32_t cps[16]; size_t ncp = 0;
     ghostty_grid_ref_graphemes(&ref, cps, 16, &ncp);
-    GhosttyColorRgb fg = {0}, bg = {0};
-    bool unused = false;
-    resolve_style_color(style.fg_color, &fg, &unused, colors);
-    resolve_style_color(style.bg_color, &bg, &unused, colors);
-    process_cell(env, &ctx, &style, cps, ncp, fg, bg);
+    process_cell(env, &ctx, style_id, &style, cps, ncp, fg, bg);
   }
   ctx_flush(env, &ctx);
   GhosttyRow grid_row;
