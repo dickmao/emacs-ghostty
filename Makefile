@@ -34,8 +34,7 @@ $(GHOSTTY_SRC)/.git:
 	git submodule update --init --recursive $(GHOSTTY_SRC)
 
 $(GHOSTTY_OUT)/lib/libghostty-vt.a: $(GHOSTTY_SRC)/.git $(ZIGSRC)
-	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast \
-	  $(if $(filter Darwin,$(shell uname -s)),-lSystem -ldispatch,)
+	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast
 
 ghostty-vt-module.so: $(GHOSTTY_OUT)/lib/libghostty-vt.a $(CSRC)
 	$(BEAR) $(CC) $(CFLAGS) -shared -o $@ $(CSRC) $(LDFLAGS)
