@@ -530,9 +530,9 @@ static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
   if (!t) return env->make_string(env, "", 0);
   char *keystr;
   {
-    size_t keysize = 0;
+    ptrdiff_t keysize = 0;
     env->copy_string_contents(env, args[1], NULL, &keysize);
-    keystr = malloc(keysize);
+    keystr = malloc((size_t)keysize);
     if (!keystr) return env->make_string(env, "", 0);
     env->copy_string_contents(env, args[1], keystr, &keysize);
   }
