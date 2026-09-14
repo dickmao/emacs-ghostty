@@ -33,10 +33,6 @@ compile: ghostty-vt-module.so
 $(GHOSTTY_SRC)/.git:
 	git submodule update --init --recursive $(GHOSTTY_SRC)
 
-cd vendor/ghostty && \
-  zig build -Demit-lib-vt=true -Doptimize=ReleaseFast \
-    $(if $(filter Darwin,$(shell uname -s)),-lSystem -ldispatch,)
-
 $(GHOSTTY_OUT)/lib/libghostty-vt.a: $(GHOSTTY_SRC)/.git $(ZIGSRC)
 	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast \
 	  $(if $(filter Darwin,$(shell uname -s)),-lSystem -ldispatch,)
