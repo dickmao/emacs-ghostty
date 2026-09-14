@@ -14,6 +14,8 @@ typedef struct {
   GhosttyRenderState rs;
   GhosttyRenderStateRowIterator iter;
   GhosttyRenderStateRowCells cells;
+  char *reply;    /* pending DA/DECRQM/Kitty-protocol/etc. reply, or NULL */
+  size_t reply_len;
 } GhosttyTerm;
 
 static void term_finalizer(void *ptr) {
@@ -24,12 +26,27 @@ static void term_finalizer(void *ptr) {
     ghostty_render_state_free(t->rs);
     ghostty_key_encoder_free(t->encoder);
     ghostty_terminal_free(t->terminal);
+    free(t->reply);
     free(t);
   }
 }
 
 static GhosttyTerm *term_get(emacs_env *env, emacs_value arg) {
   return (GhosttyTerm *)env->get_user_ptr(env, arg);
+}
+
+/* Buffers query replies (DA, DECRQM, Kitty keyboard protocol, ...) for
+   Fghostty_vt__write to hand back to Lisp, which owns process I/O. */
+static void term_write_pty_cb(GhosttyTerminal terminal, void *userdata,
+                              const uint8_t *data, size_t len) {
+  (void)terminal;
+  GhosttyTerm *t = (GhosttyTerm *)userdata;
+  if (!t || !len) return;
+  char *grown = realloc(t->reply, t->reply_len + len);
+  if (!grown) return;
+  memcpy(grown + t->reply_len, data, len);
+  t->reply = grown;
+  t->reply_len += len;
 }
 
 /* --- UTF-8 encoding --- */
@@ -279,6 +296,11 @@ static emacs_value Fghostty_vt__new(emacs_env *env, ptrdiff_t nargs,
     ghostty_render_state_free(t->rs);
     ghostty_key_encoder_free(t->encoder); ghostty_terminal_free(t->terminal); free(t); return Qnil;
   }
+  /* without this, libghostty-vt drops query replies (DA, DECRQM, Kitty
+     keyboard protocol, ...) instead of writing them back to the child */
+  ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, t);
+  ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY,
+                       (const void *)term_write_pty_cb);
   ghostty_key_encoder_setopt_from_terminal(t->encoder, t->terminal);
   emacs_value one = env->make_integer(env, 1);
   emacs_value overlay = env->funcall(env, Fmake_overlay, 2, (emacs_value[]){one, one});
@@ -286,7 +308,7 @@ static emacs_value Fghostty_vt__new(emacs_env *env, ptrdiff_t nargs,
   return env->make_user_ptr(env, term_finalizer, t);
 }
 
-/* ghostty-vt--write(term data) -> nil */
+/* ghostty-vt--write(term data) -> reply string to send back to the child, or nil */
 static emacs_value Fghostty_vt__write(emacs_env *env, ptrdiff_t nargs,
 				      emacs_value args[], void *data) {
   (void)nargs; (void)data;
@@ -300,7 +322,14 @@ static emacs_value Fghostty_vt__write(emacs_env *env, ptrdiff_t nargs,
   ghostty_terminal_vt_write(t->terminal, (const uint8_t *)buf, (size_t)(size - 1));
   free(buf);
   ghostty_key_encoder_setopt_from_terminal(t->encoder, t->terminal);
-  return Qnil;
+  emacs_value reply = Qnil;
+  if (t->reply_len) {
+    reply = env->make_string(env, t->reply, (ptrdiff_t)t->reply_len);
+    free(t->reply);
+    t->reply = NULL;
+    t->reply_len = 0;
+  }
+  return reply;
 }
 
 /* ghostty-vt--render(term)
@@ -471,17 +500,43 @@ static struct { const char *name; GhosttyKey key; } key_table[] = {
   {NULL, 0}
 };
 
+/* Ghostty's idea of what C is on the keyboard. */
+static GhosttyKey physical_key_of(char c) {
+  if (c >= 'a' && c <= 'z') return GHOSTTY_KEY_A + (c - 'a');
+  if (c >= 'A' && c <= 'Z') return GHOSTTY_KEY_A + (c - 'A');
+  if (c >= '0' && c <= '9') return GHOSTTY_KEY_DIGIT_0 + (c - '0');
+  switch (c) {
+    case '`':  return GHOSTTY_KEY_BACKQUOTE;
+    case '\\': return GHOSTTY_KEY_BACKSLASH;
+    case '[':  return GHOSTTY_KEY_BRACKET_LEFT;
+    case ']':  return GHOSTTY_KEY_BRACKET_RIGHT;
+    case ',':  return GHOSTTY_KEY_COMMA;
+    case '=':  return GHOSTTY_KEY_EQUAL;
+    case '-':  return GHOSTTY_KEY_MINUS;
+    case '.':  return GHOSTTY_KEY_PERIOD;
+    case '\'': return GHOSTTY_KEY_QUOTE;
+    case ';':  return GHOSTTY_KEY_SEMICOLON;
+    case '/':  return GHOSTTY_KEY_SLASH;
+    case '_':  return GHOSTTY_KEY_MINUS;
+    default:   return GHOSTTY_KEY_UNIDENTIFIED;
+  }
+}
+
 /* ghostty-vt--encode-key(term key-string shift alt ctrl) -> string */
 static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
 					   emacs_value args[], void *data) {
   (void)nargs; (void)data;
   GhosttyTerm *t = term_get(env, args[0]);
   if (!t) return env->make_string(env, "", 0);
-  ptrdiff_t keysize = 0;
-  env->copy_string_contents(env, args[1], NULL, &keysize);
-  char *keystr = malloc((size_t)keysize);
-  if (!keystr) return env->make_string(env, "", 0);
-  env->copy_string_contents(env, args[1], keystr, &keysize);
+  char *keystr;
+  {
+    size_t keysize = 0;
+    env->copy_string_contents(env, args[1], NULL, &keysize);
+    keystr = malloc(keysize);
+    if (!keystr) return env->make_string(env, "", 0);
+    env->copy_string_contents(env, args[1], keystr, &keysize);
+  }
+  const size_t keylen = strlen(keystr);
   GhosttyMods mods = 0;
   if (env->is_not_nil(env, args[2])) mods |= GHOSTTY_MODS_SHIFT;
   if (env->is_not_nil(env, args[3])) mods |= GHOSTTY_MODS_ALT;
@@ -490,35 +545,67 @@ static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
   for (int i = 0; key_table[i].name; i++) {
     if (strcmp(keystr, key_table[i].name) == 0) { key = key_table[i].key; break; }
   }
+
   /* ctrl+m = CR = Enter; ctrl+i = HT = Tab (legacy terminal aliases) */
-  if (key == GHOSTTY_KEY_UNIDENTIFIED && (mods & GHOSTTY_MODS_CTRL) && keysize - 1 == 1) {
+  if (key == GHOSTTY_KEY_UNIDENTIFIED && (mods & GHOSTTY_MODS_CTRL) && keylen == 1) {
     char c = (char)(keystr[0] | 0x20);
     if      (c == 'm') { key = GHOSTTY_KEY_ENTER; mods &= ~GHOSTTY_MODS_CTRL; }
     else if (c == 'i') { key = GHOSTTY_KEY_TAB;   mods &= ~GHOSTTY_MODS_CTRL; }
   }
+
+  const bool ascii_keystr = keylen == 1 && 0x20 <= keystr[0] && keystr[0] < 0x7f;
+  if (key == GHOSTTY_KEY_UNIDENTIFIED && ascii_keystr)
+    key = physical_key_of(keystr[0]);
+
   emacs_value result = env->make_string(env, "", 0);
   GhosttyKeyEvent event;
-  if (ghostty_key_event_new(NULL, &event) == GHOSTTY_SUCCESS) {
-    ghostty_key_event_set_action(event, GHOSTTY_KEY_ACTION_PRESS);
-    ghostty_key_event_set_key(event, key);
-    ghostty_key_event_set_mods(event, mods);
-    if (key == GHOSTTY_KEY_UNIDENTIFIED)
-      ghostty_key_event_set_utf8(event, keystr, (size_t)(keysize - 1));
-    char outbuf[128]; size_t written = 0;
-    GhosttyResult r = ghostty_key_encoder_encode(t->encoder, event, outbuf, sizeof(outbuf), &written);
-    if (r == GHOSTTY_SUCCESS && written > 0) {
-      result = env->make_string(env, outbuf, (ptrdiff_t)written);
-    } else if (r == GHOSTTY_OUT_OF_MEMORY) {
-      char *dynbuf = malloc(written);
-      if (dynbuf) {
-        r = ghostty_key_encoder_encode(t->encoder, event, dynbuf, written, &written);
-        if (r == GHOSTTY_SUCCESS && written > 0)
-          result = env->make_string(env, dynbuf, (ptrdiff_t)written);
-        free(dynbuf);
-      }
-    }
-    ghostty_key_event_free(event);
+  if (ghostty_key_event_new(NULL, &event) != GHOSTTY_SUCCESS)
+    goto done;
+
+  ghostty_key_event_set_action(event, GHOSTTY_KEY_ACTION_PRESS);
+  ghostty_key_event_set_key(event, key);
+  ghostty_key_event_set_mods(event, mods);
+  if (ascii_keystr) {
+    /* The unshifted codepoint is an ASCII concept driving the legacy
+       C0 or kitty CSI-u encoding. */
+    ghostty_key_event_set_unshifted_codepoint(event, (uint32_t)(unsigned char)keystr[0]);
+    /* Only CTRL/ALT make the encoder prefer an escape sequence */
+    if (!(mods & (GHOSTTY_MODS_CTRL | GHOSTTY_MODS_ALT)))
+      ghostty_key_event_set_utf8(event, keystr, keylen);
+  } else if (key == GHOSTTY_KEY_UNIDENTIFIED) {
+    /* A raw control byte or multi-byte UTF-8 text (e.g. an accented
+       character); pass through as-is. */
+    ghostty_key_event_set_utf8(event, keystr, keylen);
+  } /* else a named key in key_table, e.g., "<return>" */
+
+  char outbuf[128];
+  size_t written = 0;
+  GhosttyResult r = ghostty_key_encoder_encode(t->encoder, event, outbuf, sizeof(outbuf), &written);
+  if (r == GHOSTTY_SUCCESS &&
+      written == 0 &&
+      ascii_keystr &&
+      key != GHOSTTY_KEY_UNIDENTIFIED) {
+    /* identified-key path produced nothing (a gap in some encoder modes,
+       e.g. legacy MINUS/BRACKET_LEFT) -- fall back to the unidentified
+       utf8+mods passthrough, which legacy mode handles for any char. */
+    ghostty_key_event_set_key(event, GHOSTTY_KEY_UNIDENTIFIED);
+    ghostty_key_event_set_utf8(event, keystr, keylen);
+    r = ghostty_key_encoder_encode(t->encoder, event, outbuf, sizeof(outbuf), &written);
   }
+  if (r == GHOSTTY_SUCCESS && written > 0) {
+    result = env->make_string(env, outbuf, (ptrdiff_t)written);
+  } else if (r == GHOSTTY_OUT_OF_MEMORY) {
+    char *dynbuf = malloc(written);
+    if (dynbuf) {
+      r = ghostty_key_encoder_encode(t->encoder, event, dynbuf, written, &written);
+      if (r == GHOSTTY_SUCCESS && written > 0)
+	result = env->make_string(env, dynbuf, (ptrdiff_t)written);
+      free(dynbuf);
+    }
+  }
+  ghostty_key_event_free(event);
+
+ done:
   free(keystr);
   return result;
 }

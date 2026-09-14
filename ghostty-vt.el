@@ -75,7 +75,8 @@
     (with-current-buffer buf
       (if ghostty-vt-copy-mode
           (push data ghostty-vt--pending)
-        (ghostty-vt--write ghostty-vt--term data) ;parks partials
+        (when-let ((reply (ghostty-vt--write ghostty-vt--term data))) ;parks partials
+          (process-send-string ghostty-vt--process reply))
         (ghostty-vt--redraw)))))
 
 (defun ghostty-vt--send-event (event)
@@ -279,8 +280,9 @@
       (use-local-map ghostty-vt-mode-map)
       (setq cursor-type nil)
       (when ghostty-vt--pending
-	(mapc (lambda (data) (ghostty-vt--write ghostty-vt--term data))
-	      (nreverse ghostty-vt--pending))
+	(dolist (data (nreverse ghostty-vt--pending))
+	  (when-let ((reply (ghostty-vt--write ghostty-vt--term data)))
+	    (process-send-string ghostty-vt--process reply)))
 	(setq ghostty-vt--pending nil))
       (ghostty-vt--redraw))))
 
