@@ -110,7 +110,7 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
     (should (test-ghostty/at-prompt))
     ;; redraw locks point to cursor but save-excursion should still
     ;; work, right?  Dunno why it doesn't.
-    (when-let ((start (point))
+    (when-let* ((start (point))
 	       (bash-works-p (eq system-type 'gnu/linux)))
       (call-interactively #'ghostty-vt-yank)
       (goto-char start)

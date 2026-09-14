@@ -70,12 +70,12 @@
 	(set-window-start win (point-min))))))
 
 (defun ghostty-vt--filter (proc data)
-  (when-let ((buf (process-buffer proc))
+  (when-let* ((buf (process-buffer proc))
 	     (live-p (buffer-live-p buf)))
     (with-current-buffer buf
       (if ghostty-vt-copy-mode
           (push data ghostty-vt--pending)
-        (when-let ((reply (ghostty-vt--write ghostty-vt--term data))) ;parks partials
+        (when-let* ((reply (ghostty-vt--write ghostty-vt--term data))) ;parks partials
           (process-send-string ghostty-vt--process reply))
         (ghostty-vt--redraw)))))
 
@@ -86,7 +86,7 @@
          (meta (memq 'meta modifiers))
          (ctrl (memq 'control modifiers))
          (raw-key (event-basic-type event)))
-    (when-let ((key (if (characterp raw-key)
+    (when-let* ((key (if (characterp raw-key)
                         (string raw-key)
                       (key-description (vector raw-key)))))
       (when (and (characterp raw-key) shift (not meta) (not ctrl))
@@ -99,7 +99,7 @@
   (when ghostty-vt--term
     (let ((inhibit-redisplay t)
           (inhibit-read-only t))
-      (when-let ((encoded (ghostty-vt--encode-key
+      (when-let* ((encoded (ghostty-vt--encode-key
 			   ghostty-vt--term key
                            (and shift t) (and meta t) (and ctrl t))))
         (when (> (length encoded) 0)
@@ -141,7 +141,7 @@
   (if (< n 0)
       (ghostty-vt-previous-prompt (- n))
     (dotimes (_i n)
-      (when-let ((pos (next-single-property-change (point) 'ghostty-vt-prompt)))
+      (when-let* ((pos (next-single-property-change (point) 'ghostty-vt-prompt)))
         (goto-char pos)))))
 
 (defun ghostty-vt-previous-prompt (n)
@@ -151,7 +151,7 @@
   (if (<= n 0)
       (ghostty-vt-next-prompt (- n))
     (dotimes (_i n)
-      (when-let ((pos (previous-single-property-change (point) 'ghostty-vt-prompt)))
+      (when-let* ((pos (previous-single-property-change (point) 'ghostty-vt-prompt)))
         (goto-char pos)))))
 
 (defun ghostty-vt-clear ()
@@ -281,7 +281,7 @@
       (setq cursor-type nil)
       (when ghostty-vt--pending
 	(dolist (data (nreverse ghostty-vt--pending))
-	  (when-let ((reply (ghostty-vt--write ghostty-vt--term data)))
+	  (when-let* ((reply (ghostty-vt--write ghostty-vt--term data)))
 	    (process-send-string ghostty-vt--process reply)))
 	(setq ghostty-vt--pending nil))
       (ghostty-vt--redraw))))
@@ -294,14 +294,14 @@
   (interactive)
   (let ((keys (key-description (this-command-keys))))
     (call-interactively #'ghostty-vt-copy-mode)
-    (when-let ((command (keymap-lookup global-map keys)))
+    (when-let* ((command (keymap-lookup global-map keys)))
       (call-interactively command))))
 
 (defun ghostty-vt--copy-mode-done-then ()
   (interactive)
   (let ((keys (key-description (this-command-keys))))
     (call-interactively #'ghostty-vt-copy-mode-done)
-    (when-let ((command (keymap-lookup ghostty-vt-mode-map keys)))
+    (when-let* ((command (keymap-lookup ghostty-vt-mode-map keys)))
       (call-interactively command))))
 
 (defun ghostty-vt--adjust-window-size (process windows)
