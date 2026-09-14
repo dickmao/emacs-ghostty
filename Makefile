@@ -16,6 +16,13 @@ ifneq ($(BEAR),)
 	BEAR := $(BEAR) --
 endif
 
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+    ZIG_FLAGS := -Dsdk=$(shell xcrun --show-sdk-path)
+else
+    ZIG_FLAGS :=
+endif
+
 CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC -g \
           -I$(GHOSTTY_OUT)/include
 LDFLAGS := $(GHOSTTY_OUT)/lib/libghostty-vt.a
@@ -32,6 +39,9 @@ compile: ghostty-vt-module.so
 
 $(GHOSTTY_SRC)/.git:
 	git submodule update --init --recursive $(GHOSTTY_SRC)
+
+$(GHOSTTY_OUT)/lib/libghostty-vt.a: $(GHOSTTY_SRC)/.git $(ZIGSRC)
+	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast $(ZIG_FLAGS)
 
 $(GHOSTTY_OUT)/lib/libghostty-vt.a: $(GHOSTTY_SRC)/.git $(ZIGSRC)
 	cd $(GHOSTTY_SRC) && zig build -Demit-lib-vt=true -Doptimize=ReleaseFast
