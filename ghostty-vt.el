@@ -301,8 +301,9 @@
   (interactive)
   (let ((keys (key-description (this-command-keys))))
     (call-interactively #'ghostty-vt-copy-mode-done)
-    (when-let* ((command (keymap-lookup ghostty-vt-mode-map keys)))
-      (call-interactively command))))
+    (when-let ((command (keymap-lookup ghostty-vt-mode-map keys)))
+      (call-interactively command)
+      (setq this-command command))))
 
 (defun ghostty-vt--adjust-window-size (process windows)
   (cl-destructuring-bind (cols . rows)
