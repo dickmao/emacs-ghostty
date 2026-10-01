@@ -301,7 +301,7 @@
   (interactive)
   (let ((keys (key-description (this-command-keys))))
     (call-interactively #'ghostty-vt-copy-mode-done)
-    (when-let ((command (keymap-lookup ghostty-vt-mode-map keys)))
+    (when-let* ((command (keymap-lookup ghostty-vt-mode-map keys)))
       (call-interactively command)
       (setq this-command command))))
 
