@@ -55,7 +55,7 @@ jobs:
 
     - name: test
       run: |
-        make test
-        make install
+        ${{ startsWith(runner.os, 'macOS') && 'gmake' || 'make' }} test
+        ${{ startsWith(runner.os, 'macOS') && 'gmake' || 'make' }} install
         # verify ghostty-vt-module.so loads correctly from install dir
         cd $(mktemp -d) && emacs --batch -l package -f package-initialize -l ghostty-vt
