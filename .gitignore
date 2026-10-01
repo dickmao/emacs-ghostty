@@ -3,3 +3,5 @@ ghostty-vt-module.so
 .cache/
 compile_commands.json
 perf.data*
+/epkg/
+/epkg.mk
