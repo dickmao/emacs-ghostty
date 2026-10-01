@@ -43,7 +43,7 @@ jobs:
     - name: brew-haha
       if: startsWith(runner.os, 'macOS')
       run: |
-        brew install emacs libgccjit libxml2 libtool
+        brew install emacs libgccjit libxml2 libtool make
 
     - uses: actions/checkout@v4
       with:
