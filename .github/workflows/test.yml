@@ -45,6 +45,14 @@ jobs:
       run: |
         brew install emacs libgccjit libxml2 libtool
 
+    - uses: actions/checkout@v4
+      with:
+        repository: dickmao/epkg
+        path: epkg
+
+    - name: epkg
+      run: make -C epkg install
+
     - name: test
       run: |
         make test
