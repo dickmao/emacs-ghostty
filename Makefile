@@ -28,6 +28,8 @@ CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC -g \
           -I$(GHOSTTY_OUT)/include
 LDFLAGS := $(GHOSTTY_OUT)/lib/libghostty-vt.a
 
+.DEFAULT_GOAL := compile
+
 .PHONY: compile
 compile: ghostty-vt-module.so epkg-compile
 
