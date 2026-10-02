@@ -62,14 +62,8 @@ clean:
 veryclean: clean
 	git -C $(GHOSTTY_SRC) clean -dfX
 
-.PHONY: dist-clean
-dist-clean: epkg-dist-clean
-
-.PHONY: dist
-dist: ghostty-vt-module.so epkg-dist
-
 .PHONY: install
-install: epkg-install
+install: ghostty-vt-module.so epkg-install
 
 .PHONY: test
 test: compile epkg-test
