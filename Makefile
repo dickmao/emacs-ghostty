@@ -11,8 +11,8 @@ TESTSRC := $(shell git ls-files test/*.el)
 GHOSTTY_SRC := vendor/ghostty
 GHOSTTY_OUT := $(GHOSTTY_SRC)/zig-out
 
-EPKG_FILES := ghostty-vt-module.so $(ELSRC)
-EPKG_EL := $(ELSRC) $(TESTSRC)
+EPKG_EL := $(ELSRC)
+EPKG_FILES := ghostty-vt-module.so $(EPKG_EL)
 EPKG_MAIN := ghostty-vt.el
 EPKG_TEST_EL := $(TESTSRC)
 
