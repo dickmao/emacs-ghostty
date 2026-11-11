@@ -10,6 +10,7 @@ cd libghostty-vt-1.0.0
 zig build -Doptimize=ReleaseFast --prefix "$HOME/.local"
 
 Then,
+export PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig:$PKG_CONFIG_PATH"
 git clone https://github.com/dickmao/emacs-ghostty.git
 make -C emacs-ghostty install
 

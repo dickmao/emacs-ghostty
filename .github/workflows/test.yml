@@ -45,6 +45,15 @@ jobs:
       run: |
         brew install emacs libgccjit libxml2 libtool make
 
+    - name: libghostty-vt
+      run: |
+        cd $(mktemp -d)
+        curl -LO https://release.files.ghostty.org/libghostty-vt/1.0.0/libghostty-vt-1.0.0.tar.gz
+        tar -xzf libghostty-vt-1.0.0.tar.gz
+        cd libghostty-vt-1.0.0
+        zig build -Doptimize=ReleaseFast --prefix "$HOME/.local"
+        echo "PKG_CONFIG_PATH=$HOME/.local/lib/pkgconfig" >> $GITHUB_ENV
+
     - uses: actions/checkout@v4
       with:
         repository: dickmao/epkg
