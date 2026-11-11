@@ -19,7 +19,7 @@ ifneq ($(BEAR),)
 	BEAR := $(BEAR) --
 endif
 
-PKG_CONFIG := PKG_CONFIG_PATH="$$PKG_CONFIG_PATH:$(HOME)/.local/lib/pkgconfig" pkg-config
+PKG_CONFIG := PKG_CONFIG_PATH="$(PKG_CONFIG_PATH):$(HOME)/.local/lib/pkgconfig" pkg-config
 GHOSTTY_LIBDIR := $(shell $(PKG_CONFIG) --variable=libdir libghostty-vt)
 CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC -g \
           $(shell $(PKG_CONFIG) --cflags libghostty-vt)
@@ -32,6 +32,7 @@ LDFLAGS := $(shell $(PKG_CONFIG) --libs libghostty-vt) \
 compile: ghostty-vt-module.so epkg-compile
 
 ghostty-vt-module.so: $(CSRC)
+	$(if $(GHOSTTY_LIBDIR),,$(error libghostty-vt not found, see README))
 	$(BEAR) $(CC) $(CFLAGS) -shared -o $@ $(CSRC) $(LDFLAGS)
 
 .PHONY: run
