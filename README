@@ -1,8 +1,15 @@
 -------
 Install
 -------
-Your default zig needs to be version 0.17.1.  I don't make the rules.
+From lib.ghostty.org/vt/installing.html,
 
+curl -LO https://release.files.ghostty.org/libghostty-vt/1.0.0/libghostty-vt-1.0.0.tar.gz
+tar -xzf libghostty-vt-1.0.0.tar.gz
+cd libghostty-vt-1.0.0
+# Your default zig needs to be version 0.17.x.  I don't make the rules.
+zig build -Doptimize=ReleaseFast --prefix "$HOME/.local"
+
+Then,
 git clone https://github.com/dickmao/emacs-ghostty.git
 make -C emacs-ghostty install
 
