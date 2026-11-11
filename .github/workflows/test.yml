@@ -23,14 +23,24 @@ jobs:
         os: [ubuntu-latest, macos-latest]
 
     steps:
+    - uses: actions/cache@v4
+      id: libghostty-vt
+      with:
+        path: |
+          ~/.local/include/ghostty
+          ~/.local/lib/libghostty-vt*
+          ~/.local/lib/pkgconfig/libghostty-vt*
+        key: libghostty-vt-1.0.0-zig-0.17.1-${{ runner.os }}-${{ runner.arch }}
+
     - uses: maxim-lobanov/setup-xcode@v1
-      if: startsWith(runner.os, 'macOS')
+      if: startsWith(runner.os, 'macOS') && steps.libghostty-vt.outputs.cache-hit != 'true'
       with:
         xcode-version: '26.3'
 
     - uses: actions/checkout@v4
 
     - uses: mlugg/setup-zig@v2.2.1
+      if: steps.libghostty-vt.outputs.cache-hit != 'true'
       with:
         version: 0.17.1
 
@@ -44,15 +54,6 @@ jobs:
       if: startsWith(runner.os, 'macOS')
       run: |
         brew install emacs libgccjit libxml2 libtool make
-
-    - uses: actions/cache@v4
-      id: libghostty-vt
-      with:
-        path: |
-          ~/.local/include/ghostty
-          ~/.local/lib/libghostty-vt*
-          ~/.local/lib/pkgconfig/libghostty-vt*
-        key: libghostty-vt-1.0.0-zig-0.17.1-${{ runner.os }}-${{ runner.arch }}
 
     - name: libghostty-vt
       if: steps.libghostty-vt.outputs.cache-hit != 'true'
