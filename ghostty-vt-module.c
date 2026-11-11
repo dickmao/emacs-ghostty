@@ -267,6 +267,8 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   if (!t) return Qnil;
 
   ghostty_render_state_update(t->rs, t->terminal);
+  GhosttyRenderStateDirty dirty = GHOSTTY_RENDER_STATE_DIRTY_FULL;
+  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_DIRTY, &dirty);
   ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &t->iter);
 
   bool cursor_visible = false, cursor_in_viewport = false;
@@ -289,8 +291,9 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   env->funcall(env, Fdelete_overlay, 1, &overlay);
   intmax_t window_width = env->extract_integer(env, env->funcall(env, Fwindow_width, 0, NULL));
   for (int y = 0; ghostty_render_state_row_iterator_next(t->iter); ++y) {
-    bool row_dirty = false;
-    ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY, &row_dirty);
+    bool row_dirty = dirty == GHOSTTY_RENDER_STATE_DIRTY_FULL;
+    if (!row_dirty)
+      ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY, &row_dirty);
     emacs_value beg = env->funcall(env, Fpoint, 0, NULL);
     if (!row_dirty) {
       env->funcall(env, Fvertical_motion, 1, (emacs_value[]){env->make_integer(env, 1)});
@@ -313,8 +316,6 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
       GhosttyRow raw_row;
       ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_RAW, &raw_row);
       insert_newline_unless_wrap(env, raw_row);
-      bool clean = false;
-      ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY, &clean);
     }
 
     if (y == cy) {
@@ -360,9 +361,8 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   /* align point with cursor */
   if (env->is_not_nil(env, cs))
     env->funcall(env, Fgoto_char, 1, &cs);
-  GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
-  ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPT_DIRTY, &clean_state);
-  return Qt;
+  ghostty_render_state_clean(t->rs);
+  return dirty == GHOSTTY_RENDER_STATE_DIRTY_FALSE ? Qnil : Qt;
 }
 
 static void scroll_viewport(GhosttyTerminal terminal,
@@ -403,14 +403,8 @@ static emacs_value Fghostty_vt__prepend_history(emacs_env *env, ptrdiff_t nargs,
   }
   emacs_value ret = env->funcall(env, Fpoint, 0, NULL);
 
-  /* Back to the active area; the buffer's viewport text predates the
-     paging, so force every row to be redrawn on the next render. */
+  /* Paging left the render state FULL-dirty; the next render redraws all. */
   scroll_viewport(t->terminal, GHOSTTY_TERMINAL_SCROLL_VIEWPORT_BOTTOM, 0);
-  ghostty_render_state_update(t->rs, t->terminal);
-  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &t->iter);
-  bool dirty = true;
-  while (ghostty_render_state_row_iterator_next(t->iter))
-    ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY, &dirty);
   return ret;
 }
 
