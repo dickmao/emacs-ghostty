@@ -6,7 +6,7 @@ Follow lib.ghostty.org/vt/installing.html to install the ghostty library.
 git clone https://github.com/dickmao/emacs-ghostty.git
 make -C emacs-ghostty install
 
-If you installed libghostty-vt elsewhere, say with --prefix /opt/ghostty,
+If you installed libghostty-vt elsewhere, say /opt/ghostty,
 make -C emacs-ghostty PKG_CONFIG_PATH=/opt/ghostty/lib/pkgconfig install
 
 -----
