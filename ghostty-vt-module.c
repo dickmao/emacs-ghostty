@@ -485,14 +485,16 @@ static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
     if (strcmp(keystr, key_table[i].name) == 0) { key = key_table[i].key; break; }
   }
 
-  /* ctrl+m = CR = Enter; ctrl+i = HT = Tab (legacy terminal aliases) */
+  /* ctrl+m = CR = Enter; ctrl+i = HT = Tab (legacy terminal aliases).
+     Under -nw, RET and TAB arrive as C-m and C-i. */
+  bool alias = false;
   if (key == GHOSTTY_KEY_UNIDENTIFIED && (mods & GHOSTTY_MODS_CTRL) && keylen == 1) {
     char c = (char)(keystr[0] | 0x20);
-    if      (c == 'm') { key = GHOSTTY_KEY_ENTER; mods &= ~GHOSTTY_MODS_CTRL; }
-    else if (c == 'i') { key = GHOSTTY_KEY_TAB;   mods &= ~GHOSTTY_MODS_CTRL; }
+    if      (c == 'm') { key = GHOSTTY_KEY_ENTER; mods &= ~GHOSTTY_MODS_CTRL; alias = true; }
+    else if (c == 'i') { key = GHOSTTY_KEY_TAB;   mods &= ~GHOSTTY_MODS_CTRL; alias = true; }
   }
 
-  const bool ascii_keystr = keylen == 1 && 0x20 <= keystr[0] && keystr[0] < 0x7f;
+  const bool ascii_keystr = !alias && keylen == 1 && 0x20 <= keystr[0] && keystr[0] < 0x7f;
   if (key == GHOSTTY_KEY_UNIDENTIFIED && ascii_keystr)
     key = physical_key_of(keystr[0]);
 

@@ -200,3 +200,9 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
 
 (provide 'test-ghostty)
 ;;; test-ghostty.el ends here
+
+(ert-deftest tty-control-aliases ()
+  (let ((term (ghostty-vt--new 24 80 100)))
+    (should (equal "\r" (ghostty-vt--encode-key term "m" nil nil t)))
+    (should (equal "\t" (ghostty-vt--encode-key term "i" nil nil t)))
+    (should (equal "m" (ghostty-vt--encode-key term "m" nil nil nil)))))
