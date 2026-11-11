@@ -9,8 +9,8 @@ cd libghostty-vt-1.0.0
 # Your default zig needs to be version 0.17.x.  I don't make the rules.
 zig build -Doptimize=ReleaseFast --prefix "$HOME/.local"
 
-Then,
-export PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig:$PKG_CONFIG_PATH"
+This installs the ghostty library.  Then,
+
 git clone https://github.com/dickmao/emacs-ghostty.git
 make -C emacs-ghostty install
 
