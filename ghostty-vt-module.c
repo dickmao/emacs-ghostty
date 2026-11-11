@@ -96,13 +96,14 @@ static void flush_styled(emacs_env *env, const char *text, size_t n,
     char hex[8]; snprintf(hex, sizeof(hex), "#%02x%02x%02x", bg.r, bg.g, bg.b);
     pargs[pn++] = Sbackground; pargs[pn++] = env->make_string(env, hex, 7);
   }
-  if (style->bold)        { pargs[pn++] = Sweight; pargs[pn++] = Sbold; }
-  else if (style->faint)  { pargs[pn++] = Sweight; pargs[pn++] = Slight; }
-  if (style->italic)      { pargs[pn++] = Sslant;  pargs[pn++] = Sitalic; }
-  if (style->inverse)     { pargs[pn++] = Sinverse_video;  pargs[pn++] = Qt; }
-  if (style->strikethrough){ pargs[pn++] = Sstrike_through; pargs[pn++] = Qt; }
-  if (style->overline)    { pargs[pn++] = Soverline;        pargs[pn++] = Qt; }
-  if (style->underline != GHOSTTY_SGR_UNDERLINE_NONE) { pargs[pn++] = Sunderline; pargs[pn++] = Qt; }
+  GhosttyStyleFlags f = style->flags;
+  if (f & GHOSTTY_STYLE_FLAG_BOLD)        { pargs[pn++] = Sweight; pargs[pn++] = Sbold; }
+  else if (f & GHOSTTY_STYLE_FLAG_FAINT)  { pargs[pn++] = Sweight; pargs[pn++] = Slight; }
+  if (f & GHOSTTY_STYLE_FLAG_ITALIC)      { pargs[pn++] = Sslant;  pargs[pn++] = Sitalic; }
+  if (f & GHOSTTY_STYLE_FLAG_INVERSE)     { pargs[pn++] = Sinverse_video;  pargs[pn++] = Qt; }
+  if (f & GHOSTTY_STYLE_FLAG_STRIKETHROUGH){ pargs[pn++] = Sstrike_through; pargs[pn++] = Qt; }
+  if (f & GHOSTTY_STYLE_FLAG_OVERLINE)    { pargs[pn++] = Soverline;        pargs[pn++] = Qt; }
+  if (GHOSTTY_STYLE_UNDERLINE(*style) != GHOSTTY_SGR_UNDERLINE_NONE) { pargs[pn++] = Sunderline; pargs[pn++] = Qt; }
   emacs_value face = env->funcall(env, Flist, pn, pargs);
   env->funcall(env, Fput_text_property, 4, (emacs_value[]){start, end, Qface, face});
 }
@@ -125,47 +126,6 @@ static void ctx_flush(emacs_env *env, RowCtx *ctx) {
   ctx->buf_n = 0;
 }
 
-static void process_cell(emacs_env *env, RowCtx *ctx,
-                         uint32_t style_id, const GhosttyStyle *style,
-                         const uint32_t *cps, size_t ncp,
-                         GhosttyColorRgb fg, GhosttyColorRgb bg) {
-  if (style_id == 0) {
-    if (ctx->style_id) {
-      ctx_flush(env, ctx);
-      ctx->style_id = 0;
-    }
-    if (ncp == 0 || iswspace((wint_t)cps[0])) {
-      ctx->padding++;
-    } else {
-      flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding);
-      ctx->padding = 0;
-      ctx->buf_n += encode_cps(cps, ncp, ctx->buf + ctx->buf_n,
-			       sizeof ctx->buf - ctx->buf_n);
-    }
-    return;
-  }
-
-  char cell[64]; size_t cell_n;
-  if (ncp == 0) {
-    cell[0] = ' ';
-    cell_n = 1;
-  } else {
-    cell_n = encode_cps(cps, ncp, cell, sizeof cell);
-  }
-  if (ctx->style_id == style_id) {
-    if (ctx->buf_n + cell_n <= sizeof ctx->buf) {
-      memcpy(ctx->buf + ctx->buf_n, cell, cell_n);
-      ctx->buf_n += cell_n;
-    }
-  } else {
-    flush_padding(ctx->buf, &ctx->buf_n, sizeof ctx->buf, ctx->padding); ctx->padding = 0;
-    ctx_flush(env, ctx);
-    ctx->style_id = style_id; ctx->sty = *style; ctx->fg = fg; ctx->bg = bg;
-    memcpy(ctx->buf, cell, cell_n);
-    ctx->buf_n = cell_n;
-  }
-}
-
 static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
   RowCtx ctx = {0};
   while (ghostty_render_state_row_cells_next(cells)) {
@@ -175,41 +135,52 @@ static void render_row(emacs_env *env, GhosttyRenderStateRowCells cells) {
     ghostty_cell_get(raw_cell, GHOSTTY_CELL_DATA_WIDE, &wide);
     if (wide == GHOSTTY_CELL_WIDE_SPACER_TAIL || wide == GHOSTTY_CELL_WIDE_SPACER_HEAD)
       continue;
-    uint32_t grapheme_len = 0;
-    ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_LEN, &grapheme_len);
     uint32_t cps[16] = {0};
-    size_t ncp = grapheme_len < 16 ? grapheme_len : 16;
-    if (ncp > 0)
-      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, cps);
-    uint32_t style_id = 0;
+    GhosttyCodepointBuffer gb = { .ptr = cps, .cap = 16 };
+    ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, &gb);
+    size_t ncp = gb.len < 16 ? gb.len : 16;
+    uint16_t style_id = 0;
     ghostty_cell_get(raw_cell, GHOSTTY_CELL_DATA_STYLE_ID, &style_id);
-    GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
-    GhosttyColorRgb fg = {0}, bg = {0};
-    if (style_id && ctx.style_id != style_id) {
-      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &style);
-      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &fg);
-      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &bg);
+
+    if (style_id == 0) {
+      if (ctx.style_id) {
+        ctx_flush(env, &ctx);
+        ctx.style_id = 0;
+      }
+      if (ncp == 0 || iswspace((wint_t)cps[0])) {
+        ctx.padding++;
+      } else {
+        flush_padding(ctx.buf, &ctx.buf_n, sizeof ctx.buf, ctx.padding);
+        ctx.padding = 0;
+        ctx.buf_n += encode_cps(cps, ncp, ctx.buf + ctx.buf_n, sizeof ctx.buf - ctx.buf_n);
+      }
+      continue;
     }
-    process_cell(env, &ctx, style_id, &style, cps, ncp, fg, bg);
+
+    char cell[64]; size_t cell_n;
+    if (ncp == 0) {
+      cell[0] = ' ';
+      cell_n = 1;
+    } else {
+      cell_n = encode_cps(cps, ncp, cell, sizeof cell);
+    }
+    if (ctx.style_id == style_id) {
+      if (ctx.buf_n + cell_n <= sizeof ctx.buf) {
+        memcpy(ctx.buf + ctx.buf_n, cell, cell_n);
+        ctx.buf_n += cell_n;
+      }
+    } else {
+      flush_padding(ctx.buf, &ctx.buf_n, sizeof ctx.buf, ctx.padding); ctx.padding = 0;
+      ctx_flush(env, &ctx);
+      ctx.style_id = style_id;
+      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, &ctx.sty);
+      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR, &ctx.fg);
+      ghostty_render_state_row_cells_get(cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR, &ctx.bg);
+      memcpy(ctx.buf, cell, cell_n);
+      ctx.buf_n = cell_n;
+    }
   }
   ctx_flush(env, &ctx);
-}
-
-static void resolve_style_color(GhosttyStyleColor sc, GhosttyColorRgb *out, bool *has,
-				const GhosttyRenderStateColors *colors) {
-  switch (sc.tag) {
-  case GHOSTTY_STYLE_COLOR_PALETTE:
-    *out = colors->palette[sc.value.palette];
-    *has = true;
-    break;
-  case GHOSTTY_STYLE_COLOR_RGB:
-    *out = sc.value.rgb;
-    *has = true;
-    break;
-  default:
-    *has = false;
-    break;
-  }
 }
 
 static void insert_newline_unless_wrap(emacs_env *env, GhosttyRow row) {
@@ -219,51 +190,6 @@ static void insert_newline_unless_wrap(emacs_env *env, GhosttyRow row) {
     emacs_value nl = env->make_string(env, "\n", 1);
     env->funcall(env, Finsert, 1, &nl);
   }
-}
-
-static void render_sb_row(emacs_env *env, GhosttyTerminal terminal,
-			  const size_t row, const uint16_t cols,
-			  const GhosttyRenderStateColors *colors) {
-  RowCtx ctx = {0};
-
-  /* Pin the page node once per row; all columns share the same node/y. */
-  GhosttyGridRef ref = GHOSTTY_INIT_SIZED(GhosttyGridRef);
-  GhosttyPoint pt0 = {
-    .tag = GHOSTTY_POINT_TAG_HISTORY,
-    .value = { .coordinate = { .x = 0, .y = (uint32_t)row } }
-  };
-  if (ghostty_terminal_grid_ref(terminal, pt0, &ref) != GHOSTTY_SUCCESS)
-    return;
-
-  for (uint16_t col = 0; col < cols; col++) {
-    ref.x = col;
-    GhosttyCell cell = 0;
-    ghostty_grid_ref_cell(&ref, &cell);
-    int wide = GHOSTTY_CELL_WIDE_NARROW;
-    ghostty_cell_get(cell, GHOSTTY_CELL_DATA_WIDE, &wide);
-    if (wide == GHOSTTY_CELL_WIDE_SPACER_TAIL || wide == GHOSTTY_CELL_WIDE_SPACER_HEAD)
-      continue;
-    uint32_t style_id = 0;
-    ghostty_cell_get(cell, GHOSTTY_CELL_DATA_STYLE_ID, &style_id);
-    GhosttyStyle style = GHOSTTY_INIT_SIZED(GhosttyStyle);
-    GhosttyColorRgb fg = {0}, bg = {0};
-    if (style_id != 0) {
-      ghostty_grid_ref_style(&ref, &style);
-      bool unused = false;
-      resolve_style_color(style.fg_color, &fg, &unused, colors);
-      resolve_style_color(style.bg_color, &bg, &unused, colors);
-    }
-    uint32_t cps[16]; size_t ncp = 0;
-    ghostty_grid_ref_graphemes(&ref, cps, 16, &ncp);
-    process_cell(env, &ctx, style_id, &style, cps, ncp, fg, bg);
-  }
-  ctx_flush(env, &ctx);
-  GhosttyRow grid_row;
-  bool wrap = false;
-  if (ghostty_grid_ref_row(&ref, &grid_row) == GHOSTTY_SUCCESS)
-    ghostty_row_get(grid_row, GHOSTTY_ROW_DATA_WRAP, &wrap);
-  if (!wrap && ctx.buf_n < sizeof ctx.buf) ctx.buf[ctx.buf_n++] = '\n';
-  flush_default(env, ctx.buf, ctx.buf_n);
 }
 
 /* ghostty-vt--new(rows cols scrollback) -> user-ptr */
@@ -277,10 +203,8 @@ static emacs_value Fghostty_vt__new(emacs_env *env, ptrdiff_t nargs,
   GhosttyTerm *t = calloc(1, sizeof(GhosttyTerm));
   if (!t) return Qnil;
 
-  GhosttyTerminalOptions opts = {
-    .cols = (uint16_t)cols, .rows = (uint16_t)rows, .max_scrollback = scrollback,
-  };
-  if (ghostty_terminal_new(NULL, &t->terminal, opts) != GHOSTTY_SUCCESS) { free(t); return Qnil; }
+  if (ghostty_terminal_new(NULL, &t->terminal, (uint16_t)cols, (uint16_t)rows) != GHOSTTY_SUCCESS) { free(t); return Qnil; }
+  ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, &scrollback);
   if (ghostty_key_encoder_new(NULL, &t->encoder) != GHOSTTY_SUCCESS) {
     ghostty_terminal_free(t->terminal); free(t); return Qnil;
   }
@@ -301,7 +225,7 @@ static emacs_value Fghostty_vt__new(emacs_env *env, ptrdiff_t nargs,
   ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_USERDATA, t);
   ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY,
                        (const void *)term_write_pty_cb);
-  ghostty_key_encoder_setopt_from_terminal(t->encoder, t->terminal);
+  ghostty_key_encoder_set_from_terminal(t->encoder, t->terminal);
   emacs_value one = env->make_integer(env, 1);
   emacs_value overlay = env->funcall(env, Fmake_overlay, 2, (emacs_value[]){one, one});
   env->funcall(env, Fset, 2, (emacs_value[]){Qghostty_vt__cursor_overlay, overlay});
@@ -321,7 +245,7 @@ static emacs_value Fghostty_vt__write(emacs_env *env, ptrdiff_t nargs,
   env->copy_string_contents(env, args[1], buf, &size);
   ghostty_terminal_vt_write(t->terminal, (const uint8_t *)buf, (size_t)(size - 1));
   free(buf);
-  ghostty_key_encoder_setopt_from_terminal(t->encoder, t->terminal);
+  ghostty_key_encoder_set_from_terminal(t->encoder, t->terminal);
   emacs_value reply = Qnil;
   if (t->reply_len) {
     reply = env->make_string(env, t->reply, (ptrdiff_t)t->reply_len);
@@ -390,7 +314,7 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
       ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_RAW, &raw_row);
       insert_newline_unless_wrap(env, raw_row);
       bool clean = false;
-      ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPTION_DIRTY, &clean);
+      ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY, &clean);
     }
 
     if (y == cy) {
@@ -437,12 +361,18 @@ static emacs_value Fghostty_vt__render(emacs_env *env, ptrdiff_t nargs,
   if (env->is_not_nil(env, cs))
     env->funcall(env, Fgoto_char, 1, &cs);
   GhosttyRenderStateDirty clean_state = GHOSTTY_RENDER_STATE_DIRTY_FALSE;
-  ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPTION_DIRTY, &clean_state);
+  ghostty_render_state_set(t->rs, GHOSTTY_RENDER_STATE_OPT_DIRTY, &clean_state);
   return Qt;
 }
 
+static void scroll_viewport(GhosttyTerminal terminal,
+			    GhosttyTerminalScrollViewportTag tag, size_t row) {
+  GhosttyTerminalScrollViewport sv = { .tag = tag, .value = { .row = row } };
+  ghostty_terminal_scroll_viewport(terminal, sv);
+}
+
 /* ghostty-vt--prepend-history(term)
-   Reads all scrollback rows from ghostty and inserts them at the top of
+   Pages the viewport through scrollback, inserting each row at the top of
    the current Emacs buffer, oldest row first.
    Returns point following insertion. */
 static emacs_value Fghostty_vt__prepend_history(emacs_env *env, ptrdiff_t nargs,
@@ -451,23 +381,37 @@ static emacs_value Fghostty_vt__prepend_history(emacs_env *env, ptrdiff_t nargs,
   GhosttyTerm *t = term_get(env, args[0]);
   if (!t) return env->make_integer(env, 0);
 
-  uint16_t cols = 0;
-  ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_COLS, &cols);
-
+  uint16_t rows = 0;
   size_t sb_rows = 0;
+  ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_ROWS, &rows);
   ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS, &sb_rows);
-
-  GhosttyRenderStateColors colors = GHOSTTY_INIT_SIZED(GhosttyRenderStateColors);
-  ghostty_render_state_colors_get(t->rs, &colors);
 
   emacs_value pm = env->funcall(env, Fpoint_min, 0, NULL);
   env->funcall(env, Fgoto_char, 1, &pm);
 
-  for (size_t row = 0; row < sb_rows; row++) {
-    render_sb_row(env, t->terminal, row, cols, &colors);
+  for (size_t top = 0; rows && top < sb_rows; top += rows) {
+    scroll_viewport(t->terminal, GHOSTTY_TERMINAL_SCROLL_VIEWPORT_ROW, top);
+    ghostty_render_state_update(t->rs, t->terminal);
+    ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &t->iter);
+    for (size_t y = top; y < sb_rows && ghostty_render_state_row_iterator_next(t->iter); y++) {
+      ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &t->cells);
+      render_row(env, t->cells);
+      GhosttyRow raw_row;
+      ghostty_render_state_row_get(t->iter, GHOSTTY_RENDER_STATE_ROW_DATA_RAW, &raw_row);
+      insert_newline_unless_wrap(env, raw_row);
+    }
   }
+  emacs_value ret = env->funcall(env, Fpoint, 0, NULL);
 
-  return env->funcall(env, Fpoint, 0, NULL);
+  /* Back to the active area; the buffer's viewport text predates the
+     paging, so force every row to be redrawn on the next render. */
+  scroll_viewport(t->terminal, GHOSTTY_TERMINAL_SCROLL_VIEWPORT_BOTTOM, 0);
+  ghostty_render_state_update(t->rs, t->terminal);
+  ghostty_render_state_get(t->rs, GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR, &t->iter);
+  bool dirty = true;
+  while (ghostty_render_state_row_iterator_next(t->iter))
+    ghostty_render_state_row_set(t->iter, GHOSTTY_RENDER_STATE_ROW_OPT_DIRTY, &dirty);
+  return ret;
 }
 
 static struct { const char *name; GhosttyKey key; } key_table[] = {
@@ -537,6 +481,7 @@ static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
     env->copy_string_contents(env, args[1], keystr, &keysize);
   }
   const size_t keylen = strlen(keystr);
+  const GhosttyString utf8 = { .ptr = (const uint8_t *)keystr, .len = keylen };
   GhosttyMods mods = 0;
   if (env->is_not_nil(env, args[2])) mods |= GHOSTTY_MODS_SHIFT;
   if (env->is_not_nil(env, args[3])) mods |= GHOSTTY_MODS_ALT;
@@ -571,14 +516,14 @@ static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
     ghostty_key_event_set_unshifted_codepoint(event, (uint32_t)(unsigned char)keystr[0]);
     /* Only CTRL/ALT make the encoder prefer an escape sequence */
     if (!(mods & (GHOSTTY_MODS_CTRL | GHOSTTY_MODS_ALT)))
-      ghostty_key_event_set_utf8(event, keystr, keylen);
+      ghostty_key_event_set_utf8(event, utf8);
   } else if (key == GHOSTTY_KEY_UNIDENTIFIED) {
     /* A raw control byte or multi-byte UTF-8 text (e.g. an accented
        character); pass through as-is. */
-    ghostty_key_event_set_utf8(event, keystr, keylen);
+    ghostty_key_event_set_utf8(event, utf8);
   } /* else a named key in key_table, e.g., "<return>" */
 
-  char outbuf[128];
+  uint8_t outbuf[128];
   size_t written = 0;
   GhosttyResult r = ghostty_key_encoder_encode(t->encoder, event, outbuf, sizeof(outbuf), &written);
   if (r == GHOSTTY_SUCCESS &&
@@ -589,17 +534,17 @@ static emacs_value Fghostty_vt__encode_key(emacs_env *env, ptrdiff_t nargs,
        e.g. legacy MINUS/BRACKET_LEFT) -- fall back to the unidentified
        utf8+mods passthrough, which legacy mode handles for any char. */
     ghostty_key_event_set_key(event, GHOSTTY_KEY_UNIDENTIFIED);
-    ghostty_key_event_set_utf8(event, keystr, keylen);
+    ghostty_key_event_set_utf8(event, utf8);
     r = ghostty_key_encoder_encode(t->encoder, event, outbuf, sizeof(outbuf), &written);
   }
   if (r == GHOSTTY_SUCCESS && written > 0) {
-    result = env->make_string(env, outbuf, (ptrdiff_t)written);
-  } else if (r == GHOSTTY_OUT_OF_MEMORY) {
-    char *dynbuf = malloc(written);
+    result = env->make_string(env, (const char *)outbuf, (ptrdiff_t)written);
+  } else if (r == GHOSTTY_OUT_OF_SPACE) {
+    uint8_t *dynbuf = malloc(written);
     if (dynbuf) {
       r = ghostty_key_encoder_encode(t->encoder, event, dynbuf, written, &written);
       if (r == GHOSTTY_SUCCESS && written > 0)
-	result = env->make_string(env, dynbuf, (ptrdiff_t)written);
+	result = env->make_string(env, (const char *)dynbuf, (ptrdiff_t)written);
       free(dynbuf);
     }
   }
@@ -617,11 +562,9 @@ static emacs_value Fghostty_vt__mode_get(emacs_env *env, ptrdiff_t nargs,
   GhosttyTerm *t = term_get(env, args[0]);
   if (!t) return Qnil;
 
-  bool enabled = false;
-  ghostty_terminal_mode_get(t->terminal,
-			    (GhosttyMode)env->extract_integer(env, args[1]),
-			    &enabled);
-  return enabled ? Qt : Qnil;
+  GhosttyTerminalModeConfig mc = { .mode = (GhosttyMode)env->extract_integer(env, args[1]) };
+  ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_MODE, &mc);
+  return mc.value ? Qt : Qnil;
 }
 
 /* ghostty-vt--resize(term rows cols cell-width-px cell-height-px) -> nil */
@@ -635,7 +578,7 @@ static emacs_value Fghostty_vt__resize(emacs_env *env, ptrdiff_t nargs,
                           (uint16_t)env->extract_integer(env, args[1]),
                           (uint32_t)env->extract_integer(env, args[3]),
                           (uint32_t)env->extract_integer(env, args[4]));
-  ghostty_key_encoder_setopt_from_terminal(t->encoder, t->terminal);
+  ghostty_key_encoder_set_from_terminal(t->encoder, t->terminal);
   return Qnil;
 }
 

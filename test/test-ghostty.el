@@ -167,5 +167,36 @@ so x3 cannot be a multiple of window-width, else it'll elide the final newline."
         (call-interactively #'ghostty-vt-copy-mode)
         (should (equal (buffer-string) snapshot))))))
 
+(ert-deftest scrollback-order ()
+  "Scrollback pages arrive complete, in order, and styled."
+  (test-ghostty/with-session
+    (test-ghostty/run "for i in $(seq 1 300); do printf '\\e[31mred-%d\\e[0m plain-%d\\n' $i $i; done")
+    (let ((snapshot (buffer-string)))
+      (call-interactively #'ghostty-vt-copy-mode)
+      (let ((all (buffer-string)) nums (s 0))
+        (while (string-match "red-\\([0-9]+\\) plain-\\([0-9]+\\)" all s)
+          (should (equal (match-string 1 all) (match-string 2 all)))
+          (push (string-to-number (match-string 1 all)) nums)
+          (setq s (match-end 0)))
+        (setq nums (nreverse nums))
+        (should (equal nums (number-sequence 1 300)))
+        (goto-char (point-min))
+        (re-search-forward "red-[0-9]")
+        (should (get-text-property (1- (point)) 'face)))
+      (call-interactively #'ghostty-vt-copy-mode)
+      (should (equal (buffer-string) snapshot)))))
+
+(ert-deftest isearch-history ()
+  "Isearch in copy mode reaches scrollback."
+  (test-ghostty/with-session
+    (test-ghostty/run "for i in $(seq 1 300); do echo needle-$i; done")
+    (call-interactively #'ghostty-vt-copy-mode)
+    (goto-char (point-max))
+    (should (eq (key-binding (kbd "C-M-r")) 'isearch-backward-regexp))
+    (execute-kbd-macro (kbd "C-M-r ^ n e e d l e - 1 2 $ RET"))
+    (should (looking-at "needle-12$"))
+    (should (< (point) ghostty-vt--scrollback-end))
+    (call-interactively #'ghostty-vt-copy-mode)))
+
 (provide 'test-ghostty)
 ;;; test-ghostty.el ends here
