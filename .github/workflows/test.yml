@@ -48,7 +48,10 @@ jobs:
     - uses: actions/cache@v4
       id: libghostty-vt
       with:
-        path: ~/libghostty-vt
+        path: |
+          ~/.local/include/ghostty
+          ~/.local/lib/libghostty-vt*
+          ~/.local/lib/pkgconfig/libghostty-vt*
         key: libghostty-vt-1.0.0-zig-0.17.1-${{ runner.os }}-${{ runner.arch }}
 
     - name: libghostty-vt
@@ -58,10 +61,7 @@ jobs:
         curl -LO https://release.files.ghostty.org/libghostty-vt/1.0.0/libghostty-vt-1.0.0.tar.gz
         tar -xzf libghostty-vt-1.0.0.tar.gz
         cd libghostty-vt-1.0.0
-        zig build -Doptimize=ReleaseFast --prefix "$HOME/libghostty-vt"
-
-    - name: pkg-config
-      run: echo "PKG_CONFIG_PATH=$HOME/libghostty-vt/lib/pkgconfig" >> $GITHUB_ENV
+        zig build -Doptimize=ReleaseFast --prefix "$HOME/.local"
 
     - uses: actions/checkout@v4
       with:
