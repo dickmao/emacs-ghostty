@@ -32,7 +32,7 @@ jobs:
 
     - uses: mlugg/setup-zig@v2.2.1
       with:
-        version: 0.15.2
+        version: 0.17.1
 
     - name: apt-get
       if: startsWith(runner.os, 'Linux')
