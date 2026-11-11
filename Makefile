@@ -19,7 +19,7 @@ ifneq ($(BEAR),)
 	BEAR := $(BEAR) --
 endif
 
-PKG_CONFIG := PKG_CONFIG_PATH="$(HOME)/.local/lib/pkgconfig:$$PKG_CONFIG_PATH" pkg-config
+PKG_CONFIG := PKG_CONFIG_PATH="$$PKG_CONFIG_PATH:$(HOME)/.local/lib/pkgconfig" pkg-config
 GHOSTTY_LIBDIR := $(shell $(PKG_CONFIG) --variable=libdir libghostty-vt)
 CFLAGS := -std=c99 -Werror -fvisibility=hidden -fPIC -g \
           $(shell $(PKG_CONFIG) --cflags libghostty-vt)
